@@ -21,8 +21,19 @@ html, body, [class*="css"] {
 </style>
 """, unsafe_allow_html=True)
 
+if "run_id" not in st.session_state:
+    st.session_state["run_id"] = 0
+if "doc_run_id" not in st.session_state:
+    st.session_state["doc_run_id"] = 0
+
+
+def _clear_text_results():
+    for k in ("source", "corrected", "findings", "official", "style_notes"):
+        st.session_state.pop(k, None)
+
+
 st.title("📝 இனம் – தமிழ் அலுவல் உதவி")
-st.caption("Inam – Tamil Official Assistant · Version 2.2.0")
+st.caption("Inam – Tamil Official Assistant · Version 2.3.0")
 st.info(
     "அடிப்படைத் தமிழ் திருத்தம் API இல்லாமல் இயங்கும். "
     "பதிவேற்றிய மாதிரி ஆவணத்தைப் பின்பற்றி புதிய ஆவணம் உருவாக்க "
@@ -48,10 +59,14 @@ tab_text, tab_docs, tab_guide = st.tabs(
 
 with tab_text:
     st.subheader("தமிழ் உரையைத் திருத்துதல்")
-    source = st.text_area("திருத்த வேண்டிய உரை", height=200,
-                          placeholder="தமிழில் தட்டச்சு செய்யவும்...",
-                          key="source_input")
-    c1, c2, c3 = st.columns(3)
+    source = st.text_area(
+        "திருத்த வேண்டிய உரை",
+        height=200,
+        placeholder="தமிழில் தட்டச்சு செய்யவும்...",
+        key="source_input",
+        on_change=_clear_text_results,
+    )
+    c1, c2, c3, c4 = st.columns([1, 1, 1, 0.7])
     basic_clicked = c1.button("எழுத்து / சொற்றொடர் திருத்தம்",
                               type="primary", use_container_width=True)
     official_clicked = c2.button("அலுவல் மொழிநடையாக மாற்று",
@@ -59,65 +74,103 @@ with tab_text:
     ai_clicked = c3.button("Gemini AI மூலம் மேம்படுத்து",
                            disabled=not ai_is_configured(),
                            use_container_width=True)
+    if c4.button("அழி (Clear)", use_container_width=True):
+        _clear_text_results()
+        st.session_state["source_input"] = ""
+        st.rerun()
 
     if basic_clicked:
+        _clear_text_results()
         if source.strip():
             corrected, findings = correct_text(source)
-            st.session_state.update(source=source, corrected=corrected,
-                                    findings=findings, official=None, style_notes=[])
+            st.session_state["run_id"] += 1
+            st.session_state.update(
+                source=source,
+                corrected=corrected,
+                findings=findings,
+                official=None,
+                style_notes=[],
+            )
         else:
             st.warning("முதலில் திருத்த வேண்டிய உரையை உள்ளிடவும்.")
 
     if official_clicked:
+        _clear_text_results()
         if source.strip():
             corrected, findings = correct_text(source)
             formal, notes = convert_to_official_style(corrected)
-            st.session_state.update(source=source, corrected=corrected,
-                                    findings=findings, official=formal,
-                                    style_notes=notes)
+            st.session_state["run_id"] += 1
+            st.session_state.update(
+                source=source,
+                corrected=corrected,
+                findings=findings,
+                official=formal,
+                style_notes=notes,
+            )
         else:
             st.warning("முதலில் மாற்ற வேண்டிய உரையை உள்ளிடவும்.")
 
     if ai_clicked:
+        _clear_text_results()
         if not source.strip():
             st.warning("முதலில் மேம்படுத்த வேண்டிய உரையை உள்ளிடவும்.")
         else:
             try:
                 with st.spinner("Gemini AI பரிந்துரை உருவாக்கப்படுகிறது..."):
                     improved = improve_with_ai(source)
+                st.session_state["run_id"] += 1
                 st.session_state.update(
-                    source=source, corrected=improved,
-                    findings=[{"category": "Gemini AI பரிந்துரை",
-                               "original": "உள்ளீட்டு உரை",
-                               "suggestion": "AI மூலம் மேம்படுத்தப்பட்டது",
-                               "reason": "பெயர்கள், எண்கள், தேதிகள் மற்றும் உண்மைகளைச் சரிபார்க்கவும்."}],
-                    official=None, style_notes=[]
+                    source=source,
+                    corrected=improved,
+                    findings=[{
+                        "category": "Gemini AI பரிந்துரை",
+                        "original": "உள்ளீட்டு உரை",
+                        "suggestion": "AI மூலம் மேம்படுத்தப்பட்டது",
+                        "reason": "பெயர்கள், எண்கள், தேதிகள் மற்றும் உண்மைகளைச் சரிபார்க்கவும்.",
+                    }],
+                    official=None,
+                    style_notes=[],
                 )
             except Exception as exc:
                 st.error(f"AI சேவையை அணுக முடியவில்லை: {exc}")
 
     if "corrected" in st.session_state:
+        rid = st.session_state["run_id"]
         st.divider()
         st.subheader("1. அசல் உரை")
-        st.text_area("அசல் உரை", st.session_state["source"],
-                     height=100, disabled=True, key="original_output")
+        st.text_area(
+            "அசல் உரை",
+            value=st.session_state["source"],
+            height=100,
+            disabled=True,
+            key=f"original_output_{rid}",
+        )
         st.subheader("2. திருத்தப்பட்ட உரை")
-        corrected_edit = st.text_area("திருத்தப்பட்ட உரையைச் சரிபார்த்து மாற்றலாம்",
-                                      st.session_state["corrected"],
-                                      height=160, key="corrected_edit")
+        corrected_edit = st.text_area(
+            "திருத்தப்பட்ட உரையைச் சரிபார்த்து மாற்றலாம்",
+            value=st.session_state["corrected"],
+            height=160,
+            key=f"corrected_edit_{rid}",
+        )
         st.download_button("திருத்தப்பட்ட உரை – TXT", make_txt(corrected_edit),
                            "inam-corrected-tamil.txt", "text/plain; charset=utf-8")
         st.subheader("கண்டறியப்பட்ட மாற்றங்கள் / பரிந்துரைகள்")
-        for i, item in enumerate(st.session_state.get("findings", []), 1):
+        findings_list = st.session_state.get("findings", [])
+        if not findings_list:
+            st.info("எவ்வித எழுத்துப் பிழையும் கண்டறியப்படவில்லை.")
+        for i, item in enumerate(findings_list, 1):
             with st.expander(f"{i}. {item['category']}"):
                 st.write("**அசல்:** " + item["original"])
                 st.write("**பரிந்துரை:** " + item["suggestion"])
                 st.caption(item["reason"])
         if st.session_state.get("official") is not None:
             st.subheader("3. அலுவல் மொழிநடை வரைவு")
-            formal_edit = st.text_area("அலுவல் மொழிநடையைச் சரிபார்க்கவும்",
-                                       st.session_state["official"],
-                                       height=160, key="formal_edit")
+            formal_edit = st.text_area(
+                "அலுவல் மொழிநடையைச் சரிபார்க்கவும்",
+                value=st.session_state["official"],
+                height=160,
+                key=f"formal_edit_{rid}",
+            )
             st.download_button("அலுவல் மொழிநடை – TXT", make_txt(formal_edit),
                                "inam-official-style.txt", "text/plain; charset=utf-8")
             for note in st.session_state.get("style_notes", []):
@@ -161,6 +214,7 @@ with tab_docs:
         type="primary",
         disabled=(not ai_is_configured() or sample_file is None)
     ):
+        st.session_state.pop("doc", None)
         details = {
             "ஆவண வகை": kind,
             "அலுவலகம் / துறை": office,
@@ -180,6 +234,7 @@ with tab_docs:
                     doc_type=kind,
                     details=details,
                 )
+            st.session_state["doc_run_id"] += 1
             st.success("புதிய அலுவல் ஆவண வரைவு உருவாக்கப்பட்டது.")
         except Exception as exc:
             st.error(f"AI ஆவணத்தை உருவாக்க முடியவில்லை: {exc}")
@@ -202,16 +257,22 @@ with tab_docs:
         basic_body = st.text_area("உள்ளடக்கம்", key="basic_body")
         basic_sign = st.text_input("கையொப்பமிடுபவர் / பதவி", key="basic_sign")
         if st.button("அடிப்படை ஆவண வரைவை உருவாக்கு"):
+            st.session_state.pop("doc", None)
             st.session_state["doc"] = build_document(
                 basic_kind, basic_office, basic_recipient, basic_date,
                 basic_ref, basic_subject, basic_body, basic_place, basic_sign
             )
+            st.session_state["doc_run_id"] += 1
 
     if "doc" in st.session_state:
+        drid = st.session_state["doc_run_id"]
         st.subheader("உருவாக்கப்பட்ட ஆவணம்")
-        document_edit = st.text_area("வரைவைத் திருத்தவும்",
-                                     st.session_state["doc"],
-                                     height=320, key="doc_edit")
+        document_edit = st.text_area(
+            "வரைவைத் திருத்தவும்",
+            value=st.session_state["doc"],
+            height=320,
+            key=f"doc_edit_{drid}",
+        )
         st.download_button(
             "Word (.docx)", make_docx(document_edit),
             "inam-official-document.docx",
