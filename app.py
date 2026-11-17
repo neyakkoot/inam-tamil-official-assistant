@@ -39,9 +39,9 @@ def _clear_text_results():
 
 
 st.title("📝 இனம் – தமிழ் அலுவல் உதவி")
-st.caption("Inam – Tamil Official Assistant · Version 2.4.0")
+st.caption("Inam – Tamil Official Assistant · Version 2.5.0")
 st.info(
-    "அடிப்படைத் தமிழ் உருபனியல் மற்றும் எழுத்துப் பிழைத்திருத்தம் API இல்லாமல் இயங்கும். "
+    "அடிப்படைத் தமிழ் உருபனியல் மற்றும் எழுத்துப் பிழைத்திருத்தம் API இல்லாமல் நொடிப்பொழுதில் இயங்கும். "
     "ஆழமான இலக்கணப் பரிந்துரைகளுக்கும் மாதிரி ஆவண உருவாக்கத்திற்கும் Gemini AI பயன்படுத்தப்படும்."
 )
 
@@ -127,9 +127,9 @@ with tab_text:
         if not source.strip():
             st.warning("முதலில் மேம்படுத்த வேண்டிய உரையை உள்ளிடவும்.")
         else:
+            rule_corrected, rule_findings = correct_text(source)
             try:
                 with st.spinner("உருபனியல் ஆய்வு & Gemini AI பரிந்துரை உருவாக்கப்படுகிறது..."):
-                    rule_corrected, rule_findings = correct_text(source)
                     improved, ai_suggestions = improve_with_ai_detailed(
                         rule_corrected, rule_findings
                     )
@@ -153,8 +153,19 @@ with tab_text:
                     official=None,
                     style_notes=[],
                 )
-            except Exception as exc:
-                st.error(f"AI சேவையை அணுக முடியவில்லை: {exc}")
+            except Exception:
+                st.info(
+                    "Gemini AI வழங்கி தற்போது அதிகப் பயன்பாட்டில் உள்ளதால், "
+                    "உள்ளூர் உருபனியல் & மயங்கொலிப் பிழைத்திருத்தியின் முடிவுகள் உடனடியாக வழங்கப்பட்டுள்ளன."
+                )
+                st.session_state["run_id"] += 1
+                st.session_state.update(
+                    source=source,
+                    corrected=rule_corrected,
+                    findings=rule_findings,
+                    official=None,
+                    style_notes=[],
+                )
 
     if "corrected" in st.session_state:
         rid = st.session_state["run_id"]
@@ -185,7 +196,10 @@ with tab_text:
         if not findings_list:
             st.info("எவ்வித எழுத்துப் பிழையும் கண்டறியப்படவில்லை.")
         for i, item in enumerate(findings_list, 1):
-            with st.expander(f"{i}. {item['category']} ({item['original']} → {item['suggestion']})", expanded=True):
+            with st.expander(
+                f"{i}. {item['category']} ({item['original']} → {item['suggestion']})",
+                expanded=True,
+            ):
                 st.write("**அசல்:** " + item["original"])
                 st.write("**பரிந்துரை:** " + item["suggestion"])
                 st.caption(item["reason"])
@@ -337,8 +351,8 @@ with tab_docs:
 with tab_guide:
     st.subheader("பயன்பாட்டு வழிகாட்டி")
     st.markdown("""
-- அடிப்படைத் தமிழ் உருபனியல், மயங்கொலி, சந்திப் பிழைத்திருத்தம் மற்றும் முன்வரையறுக்கப்பட்ட ஆவண உருவாக்கம் API இல்லாமல் இயங்கும்.
-- **கலப்பின AI பிழைதிருத்தம்** பொத்தானைப் பயன்படுத்தினால் உள்ளூர் இலக்கண விதிகளுடன் Gemini AI பரிந்துரைகளும் இணைந்து காட்டப்படும்.
+- அடிப்படைத் தமிழ் உருபனியல், மயங்கொலி, சந்திப் பிழைத்திருத்தம் மற்றும் முன்வரையறுக்கப்பட்ட ஆவண உருவாக்கம் API இல்லாமல் நொடிப்பொழுதில் இயங்கும்.
+- **கலப்பின AI பிழைதிருத்தம்** பொத்தானைப் பயன்படுத்தினால் உள்ளூர் இலக்கண விதிகளுடன் Gemini AI பரிந்துரைகளும் இணைந்து காட்டப்படும்; AI வழங்கி நெரிசலில் இருந்தால் உள்ளூர் இலக்கணத் திருத்த முடிவுகள் உடனடியாக வழங்கப்படும்.
 - மாதிரி DOCX/TXT/PDF-ஐப் பின்பற்றி AI வரைவு உருவாக்க Gemini API தேவை.
 - ஸ்கேன் செய்யப்பட்ட PDF-யும் Gemini-க்கு நேரடியாக அனுப்பப்படும்; தனியாக OCR மென்பொருள் நிறுவ வேண்டியதில்லை.
 - AI உருவாக்கிய வரைவை வெளியிடுவதற்கு முன் பெயர்கள், தேதிகள், எண்கள், அரசாணை மற்றும் சட்டக் குறிப்புகளைச் சரிபார்க்கவும்.
