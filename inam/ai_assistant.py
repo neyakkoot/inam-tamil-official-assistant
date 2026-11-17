@@ -25,7 +25,7 @@ def get_gemini_api_key() -> str:
 
 
 def get_ai_model() -> str:
-    return _secret("GEMINI_MODEL", "gemini-2.5-flash")
+    return _secret("GEMINI_MODEL", "gemini-3.8-flash")
 
 
 def ai_is_configured() -> bool:
