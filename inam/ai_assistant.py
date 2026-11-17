@@ -6,6 +6,7 @@ leave a closed HTTP client in use.
 """
 import os
 import re
+import time
 import json
 from io import BytesIO
 
@@ -47,43 +48,62 @@ def _new_client():
             "google-genai தொகுப்பு நிறுவப்படவில்லை. "
             "pip install -U google-genai என இயக்கவும்."
         ) from exc
-    # IMPORTANT: return a brand-new client for this request only.
     return genai.Client(api_key=key)
 
 
 def _call_gemini(contents):
-    """Create a fresh client and retry once only for a closed-client failure."""
-    last_error = None
-    for attempt in range(2):
-        client = None
-        try:
-            client = _new_client()
-            response = client.models.generate_content(
-                model=get_ai_model(),
-                contents=contents,
-            )
-            answer = (getattr(response, "text", None) or "").strip()
-            if not answer:
-                raise RuntimeError("Gemini பதில் காலியாக உள்ளது.")
-            return answer
-        except Exception as exc:
-            last_error = exc
-            message = str(exc).lower()
-            closed_error = (
-                "client has been closed" in message
-                or "client is closed" in message
-                or "cannot send a request" in message
-            )
-            if not (closed_error and attempt == 0):
-                break
-        finally:
-            if client is not None:
-                try:
-                    client.close()
-                except Exception:
-                    pass
+    """
+    Create a fresh client, retry on temporary 503/429 high-demand spikes,
+    and fall back to secondary Flash models if the primary model is busy.
+    """
+    primary_model = get_ai_model()
+    candidate_models = []
+    for m in (primary_model, "gemini-3.8-flash-lite", "gemini-3.5-flash"):
+        if m and m not in candidate_models:
+            candidate_models.append(m)
 
-    raise RuntimeError(f"Gemini API கோரிக்கை தோல்வியடைந்தது: {last_error}")
+    last_error = None
+    for model_name in candidate_models:
+        for attempt in range(2):
+            client = None
+            try:
+                client = _new_client()
+                response = client.models.generate_content(
+                    model=model_name,
+                    contents=contents,
+                )
+                answer = (getattr(response, "text", None) or "").strip()
+                if not answer:
+                    raise RuntimeError("Gemini பதில் காலியாக உள்ளது.")
+                return answer
+            except Exception as exc:
+                last_error = exc
+                message = str(exc).lower()
+                transient_error = (
+                    "503" in message
+                    or "unavailable" in message
+                    or "high demand" in message
+                    or "429" in message
+                    or "resource_exhausted" in message
+                    or "client has been closed" in message
+                    or "client is closed" in message
+                    or "cannot send a request" in message
+                )
+                if transient_error and attempt == 0:
+                    time.sleep(2)
+                    continue
+                break
+            finally:
+                if client is not None:
+                    try:
+                        client.close()
+                    except Exception:
+                        pass
+
+    raise RuntimeError(
+        "Gemini வழங்கி தற்போது அதிகப் பயன்பாட்டில் (503 High Demand) உள்ளது. "
+        f"சில வினாடிகள் கழித்து மீண்டும் முயற்சிக்கவும். (விவரம்: {last_error})"
+    )
 
 
 def improve_with_ai(text: str) -> str:
