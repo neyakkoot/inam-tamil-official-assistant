@@ -3,6 +3,7 @@ Ultra-fast Gemini integration for Inam Tamil Official Assistant.
 """
 import os
 import re
+import time
 import json
 from io import BytesIO
 
@@ -57,17 +58,23 @@ def _fast_config():
 
 
 def _call_gemini(contents, fast_mode: bool = True):
-    """Instant execution with zero sleep delay and automatic fast fallback."""
+    """Instant execution with automatic fallback across available models."""
     primary_model = get_ai_model()
     candidate_models = []
-    for m in (primary_model, "gemini-3.8-flash-lite", "gemini-3.8-flash"):
+    for m in (
+        primary_model,
+        "gemini-3.8-flash-lite",
+        "gemini-3.8-flash",
+        "gemini-2.5-flash-lite",
+        "gemini-2.0-flash",
+    ):
         if m and m not in candidate_models:
             candidate_models.append(m)
 
     config = _fast_config() if fast_mode else None
     last_error = None
 
-    for model_name in candidate_models:
+    for idx, model_name in enumerate(candidate_models):
         client = None
         try:
             client = _new_client()
@@ -81,6 +88,8 @@ def _call_gemini(contents, fast_mode: bool = True):
             return answer
         except Exception as exc:
             last_error = exc
+            if idx == 0:
+                time.sleep(0.5)
             continue
         finally:
             if client is not None:
@@ -89,7 +98,7 @@ def _call_gemini(contents, fast_mode: bool = True):
                 except Exception:
                     pass
 
-    raise RuntimeError(f"Gemini API கோரிக்கை தோல்வியடைந்தது: {last_error}")
+    raise RuntimeError(f"503_HIGH_DEMAND: {last_error}")
 
 
 def improve_with_ai(text: str) -> str:
