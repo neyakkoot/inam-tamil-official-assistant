@@ -58,108 +58,358 @@ def _clear_text_results():
         st.session_state.pop(k, None)
 
 
-def _render_browser_tamil_stt():
-    """உலாவியின் Web Speech API வழியாக நேரடித் தமிழ் Speech-to-Text கருவி."""
+def _render_live_voice_typing_board():
+    """பேசும்போதே உடனுக்குடன் தட்டச்சாகும் நவீன குரல் தட்டச்சுப் பலகை."""
     html_code = """
-    <div style="font-family: 'Marutham', 'Noto Sans Tamil', sans-serif; padding: 14px; border: 1px solid #d0d7de; border-radius: 10px; background: #f8fafc;">
-        <div style="display: flex; gap: 10px; align-items: center; margin-bottom: 10px; flex-wrap: wrap;">
-            <button id="startBtn" onclick="startRecognition()" style="background:#0f766e; color:white; border:none; padding:8px 16px; border-radius:6px; cursor:pointer; font-size:15px;">
-                🎙️ பேசத் தொடங்கு (Start)
-            </button>
-            <button id="stopBtn" onclick="stopRecognition()" disabled style="background:#dc2626; color:white; border:none; padding:8px 16px; border-radius:6px; cursor:pointer; font-size:15px;">
-                ⏹️ நிறுத்து (Stop)
-            </button>
-            <button onclick="copyTranscript()" style="background:#2563eb; color:white; border:none; padding:8px 14px; border-radius:6px; cursor:pointer; font-size:14px;">
-                📋 உரையை நகலெடு
-            </button>
-            <button onclick="clearTranscript()" style="background:#64748b; color:white; border:none; padding:8px 14px; border-radius:6px; cursor:pointer; font-size:14px;">
-                🗑️ அழி
-            </button>
-            <span id="status" style="font-size:13px; color:#334155; font-weight:600;">தயார் நிலையில் உள்ளது (ta-IN)</span>
+    <!DOCTYPE html>
+    <html lang="ta">
+    <head>
+    <meta charset="UTF-8">
+    <style>
+        * { box-sizing: border-box; font-family: 'Marutham', 'Noto Sans Tamil', 'Latha', sans-serif; }
+        body { margin: 0; padding: 4px; background: transparent; }
+        .board-card {
+            background: #ffffff;
+            border: 1px solid #e2e8f0;
+            border-radius: 16px;
+            padding: 20px;
+            box-shadow: 0 4px 16px rgba(15, 23, 42, 0.06);
+        }
+        .board-header {
+            text-align: center;
+            margin-bottom: 14px;
+        }
+        .board-title {
+            font-size: 22px;
+            font-weight: 700;
+            color: #1e3a8a;
+            margin: 0 0 4px 0;
+        }
+        .board-sub {
+            font-size: 13.5px;
+            color: #475569;
+            margin: 0;
+        }
+        .toolbar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-bottom: 12px;
+        }
+        .lang-group {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            color: #1e293b;
+        }
+        select {
+            padding: 6px 12px;
+            border-radius: 8px;
+            border: 1px solid #cbd5e1;
+            font-size: 14px;
+            background: #f8fafc;
+            cursor: pointer;
+        }
+        .status-pill {
+            padding: 6px 14px;
+            border-radius: 999px;
+            font-size: 13px;
+            font-weight: 600;
+            background: #f1f5f9;
+            color: #475569;
+            border: 1px solid #e2e8f0;
+            transition: all 0.2s ease;
+        }
+        .status-pill.listening {
+            background: #dcfce7;
+            color: #15803d;
+            border-color: #86efac;
+        }
+        .status-pill.error {
+            background: #fee2e2;
+            color: #b91c1c;
+            border-color: #fca5a5;
+        }
+        .editor-wrap {
+            position: relative;
+            border: 1.5px solid #cbd5e1;
+            border-radius: 12px;
+            background: #ffffff;
+            padding: 12px 12px 12px 64px;
+            transition: border-color 0.2s;
+        }
+        .editor-wrap:focus-within {
+            border-color: #2563eb;
+        }
+        .mic-btn {
+            position: absolute;
+            top: 14px;
+            left: 12px;
+            width: 42px;
+            height: 42px;
+            border-radius: 50%;
+            border: none;
+            background: #2563eb;
+            color: #ffffff;
+            font-size: 19px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 3px 10px rgba(37, 99, 235, 0.35);
+            transition: all 0.2s ease;
+        }
+        .mic-btn:hover { transform: scale(1.05); }
+        .mic-btn.recording {
+            background: #dc2626;
+            box-shadow: 0 0 0 6px rgba(220, 38, 38, 0.2);
+            animation: pulse 1.3s infinite;
+        }
+        @keyframes pulse {
+            0% { box-shadow: 0 0 0 0 rgba(220, 38, 38, 0.45); }
+            70% { box-shadow: 0 0 0 10px rgba(220, 38, 38, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(220, 38, 38, 0); }
+        }
+        textarea {
+            width: 100%;
+            min-height: 175px;
+            border: none;
+            outline: none;
+            resize: vertical;
+            font-size: 17px;
+            line-height: 1.65;
+            color: #0f172a;
+            background: transparent;
+        }
+        .footer-bar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-top: 10px;
+            font-size: 13px;
+        }
+        .counters {
+            color: #2563eb;
+            font-weight: 600;
+        }
+        .actions {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+        .action-btn {
+            border: 1px solid #cbd5e1;
+            background: #f8fafc;
+            color: #1e293b;
+            padding: 5px 12px;
+            border-radius: 8px;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+        }
+        .action-btn:hover { background: #e2e8f0; }
+        .action-btn.danger {
+            color: #dc2626;
+            border-color: #fecaca;
+            background: #fef2f2;
+        }
+        .action-btn.danger:hover { background: #fee2e2; }
+    </style>
+    </head>
+    <body>
+    <div class="board-card">
+        <div class="board-header">
+            <h3 class="board-title">குரல் தட்டச்சுப் பலகை (Live Voice Typing)</h3>
+            <p class="board-sub">பேசுங்கள்... உடனுக்குடன் துல்லியமான ஒருங்குறி (Unicode) உரையாக மாறும்</p>
         </div>
-        <textarea id="transcriptBox" rows="5" placeholder="ஒலிவாங்கியை அழுத்தித் தமிழில் பேசுங்கள்..." style="width:100%; padding:10px; font-size:16px; border-radius:8px; border:1px solid #cbd5e1; font-family: 'Marutham', 'Noto Sans Tamil', sans-serif;"></textarea>
+
+        <div class="toolbar">
+            <div class="lang-group">
+                <label for="langSelect">மொழி:</label>
+                <select id="langSelect" onchange="changeLang()">
+                    <option value="ta-IN" selected>தமிழ் (Tamil - India)</option>
+                    <option value="ta-SG">தமிழ் (Singapore)</option>
+                    <option value="ta-LK">தமிழ் (Sri Lanka)</option>
+                    <option value="en-IN">English (India)</option>
+                </select>
+            </div>
+            <div id="statusPill" class="status-pill">● தயார்</div>
+        </div>
+
+        <div class="editor-wrap">
+            <button id="micBtn" class="mic-btn" onclick="toggleMic()" title="மைக் குறியீட்டை அழுத்திப் பேசத் தொடங்குங்கள்">🎙️</button>
+            <textarea id="voiceText" oninput="syncManualEdit()" placeholder="இங்குள்ள மைக் குறியீட்டை அழுத்திப் பேசத் தொடங்குங்கள்..."></textarea>
+        </div>
+
+        <div class="footer-bar">
+            <div class="counters">
+                சொற்கள்: <span id="wordCount">0</span> &nbsp;|&nbsp; எழுத்துக்கள்: <span id="charCount">0</span>
+            </div>
+            <div class="actions">
+                <button class="action-btn" onclick="copyText()">📋 நகலெடு</button>
+                <button class="action-btn" onclick="downloadTxt()">⬇️ TXT பதிவிறக்கு</button>
+                <button class="action-btn danger" onclick="clearText()">🗑️ உரையை அழி</button>
+            </div>
+        </div>
     </div>
 
     <script>
-        let recognition = null;
-        let finalTranscript = "";
-        const statusEl = document.getElementById("status");
-        const boxEl = document.getElementById("transcriptBox");
-        const startBtn = document.getElementById("startBtn");
-        const stopBtn = document.getElementById("stopBtn");
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        const micBtn = document.getElementById("micBtn");
+        const statusPill = document.getElementById("statusPill");
+        const voiceText = document.getElementById("voiceText");
+        const langSelect = document.getElementById("langSelect");
+        const wordCountEl = document.getElementById("wordCount");
+        const charCountEl = document.getElementById("charCount");
 
-        if ("webkitSpeechRecognition" in window || "SpeechRecognition" in window) {
-            const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        let recognition = null;
+        let isListening = false;
+        let committedText = "";
+
+        function updateCounters() {
+            const val = voiceText.value;
+            charCountEl.innerText = val.length;
+            const trimmed = val.trim();
+            wordCountEl.innerText = trimmed ? trimmed.split(/\\s+/).length : 0;
+        }
+
+        function syncManualEdit() {
+            committedText = voiceText.value;
+            updateCounters();
+        }
+
+        function setStatus(text, mode) {
+            statusPill.innerText = text;
+            statusPill.className = "status-pill" + (mode ? " " + mode : "");
+        }
+
+        if (SpeechRecognition) {
             recognition = new SpeechRecognition();
-            recognition.lang = "ta-IN";
+            recognition.lang = langSelect.value;
             recognition.continuous = true;
             recognition.interimResults = true;
 
             recognition.onstart = () => {
-                statusEl.innerText = "🔴 கேட்கிறது... தமிழில் பேசுங்கள்";
-                startBtn.disabled = true;
-                stopBtn.disabled = false;
+                isListening = true;
+                micBtn.classList.add("recording");
+                setStatus("● கேட்கிறது... பேசுங்கள்", "listening");
             };
 
             recognition.onresult = (event) => {
-                let interim = "";
-                for (let i = event.resultIndex; i < event.results.length; ++i) {
+                let interimTranscript = "";
+                for (let i = event.resultIndex; i < event.results.length; i++) {
+                    const piece = event.results[i][0].transcript;
                     if (event.results[i].isFinal) {
-                        finalTranscript += event.results[i][0].transcript + " ";
+                        const needsSpace = committedText && !committedText.endsWith(" ") && !committedText.endsWith("\\n");
+                        committedText += (needsSpace ? " " : "") + piece.trim();
                     } else {
-                        interim += event.results[i][0].transcript;
+                        interimTranscript += piece;
                     }
                 }
-                boxEl.value = finalTranscript + interim;
+                const spacer = (committedText && interimTranscript && !committedText.endsWith(" ")) ? " " : "";
+                voiceText.value = committedText + spacer + interimTranscript;
+                voiceText.scrollTop = voiceText.scrollHeight;
+                updateCounters();
             };
 
             recognition.onerror = (event) => {
-                statusEl.innerText = "⚠️ பிழை: " + event.error;
-                startBtn.disabled = false;
-                stopBtn.disabled = true;
+                if (event.error === "no-speech") {
+                    return;
+                }
+                isListening = false;
+                micBtn.classList.remove("recording");
+                if (event.error === "not-allowed") {
+                    setStatus("⚠️ மைக் அனுமதி மறுக்கப்பட்டது (Browser Settings-இல் அனுமதிக்கவும்)", "error");
+                } else {
+                    setStatus("⚠️ பிழை: " + event.error, "error");
+                }
             };
 
             recognition.onend = () => {
-                statusEl.innerText = "✅ ஒலிப்பதிவு நிறுத்தப்பட்டது";
-                startBtn.disabled = false;
-                stopBtn.disabled = true;
+                if (isListening) {
+                    try {
+                        recognition.start();
+                    } catch (e) {}
+                } else {
+                    micBtn.classList.remove("recording");
+                    setStatus("● தயார்", "");
+                }
             };
         } else {
-            statusEl.innerText = "⚠️ உங்கள் உலாவி நேரடிக் குரல் தட்டச்சை ஆதரிக்கவில்லை (Chrome / Edge பயன்படுத்தவும்).";
-            startBtn.disabled = true;
+            micBtn.disabled = true;
+            setStatus("⚠️ Chrome அல்லது Edge உலாவியைப் பயன்படுத்தவும்", "error");
         }
 
-        function startRecognition() {
-            if (recognition) {
-                finalTranscript = boxEl.value ? boxEl.value + " " : "";
-                recognition.start();
+        function toggleMic() {
+            if (!recognition) return;
+            if (isListening) {
+                isListening = false;
+                recognition.stop();
+                micBtn.classList.remove("recording");
+                setStatus("● நிறுத்தப்பட்டது", "");
+            } else {
+                committedText = voiceText.value;
+                recognition.lang = langSelect.value;
+                try {
+                    recognition.start();
+                } catch (e) {}
             }
         }
 
-        function stopRecognition() {
-            if (recognition) recognition.stop();
+        function changeLang() {
+            if (recognition) {
+                recognition.lang = langSelect.value;
+                if (isListening) {
+                    recognition.stop();
+                }
+            }
         }
 
-        function copyTranscript() {
-            boxEl.select();
-            document.execCommand("copy");
-            statusEl.innerText = "📋 உரை நகலெடுக்கப்பட்டது!";
+        function copyText() {
+            if (!voiceText.value) return;
+            navigator.clipboard.writeText(voiceText.value).then(() => {
+                setStatus("📋 உரை நகலெடுக்கப்பட்டது!", "listening");
+                setTimeout(() => {
+                    if (isListening) setStatus("● கேட்கிறது... பேசுங்கள்", "listening");
+                    else setStatus("● தயார்", "");
+                }, 1800);
+            });
         }
 
-        function clearTranscript() {
-            finalTranscript = "";
-            boxEl.value = "";
-            statusEl.innerText = "அழிக்கப்பட்டது";
+        function downloadTxt() {
+            if (!voiceText.value.trim()) return;
+            const blob = new Blob([voiceText.value], { type: "text/plain;charset=utf-8" });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = "inam-voice-typing.txt";
+            a.click();
+            URL.revokeObjectURL(url);
+        }
+
+        function clearText() {
+            committedText = "";
+            voiceText.value = "";
+            updateCounters();
+            if (!isListening) setStatus("● தயார்", "");
         }
     </script>
+    </body>
+    </html>
     """
-    components.html(html_code, height=230)
+    components.html(html_code, height=375)
 
 
 st.title("📝 இனம் – தமிழ் அலுவல் உதவி")
-st.caption("Inam – Tamil Official Assistant & Language Workbench · Version 3.1.0")
+st.caption("Inam – Tamil Official Assistant & Language Workbench · Version 3.2.0")
 st.info(
-    "குரல்வழித் தட்டச்சு (Speech-to-Text), தமிழ்த் தட்டச்சு, குறியேற்ற மாற்றி (Bamini/TSCII/TAB/TAM), "
+    "பேசும்போதே உடனுக்குடன் தட்டச்சாகும் குரல் தட்டச்சுப் பலகை, தமிழ்த் தட்டச்சு, குறியேற்ற மாற்றி (Bamini/TSCII/TAB/TAM), "
     "சொற்பிழை/சந்தித் திருத்தி, அகராதி, அகரவரிசைப்படுத்தல், சொல்லடைவு, துணைநூற்பட்டியல், "
     "எண்-எழுத்து மாற்றி ஆகிய வசதிகள் ஒருங்கிணைக்கப்பட்டுள்ளன."
 )
@@ -168,7 +418,7 @@ with st.sidebar:
     st.subheader("அடிப்படை வசதிகள் (Offline)")
     st.success("13+ தமிழ் மொழிக் கருவிகள் – API தேவையில்லை")
     st.markdown("""
-- குரல்வழித் தட்டச்சு (Speech-to-Text)
+- நேரடிக் குரல் தட்டச்சுப் பலகை (Live Voice Typing)
 - தமிழ்த் தட்டச்சு விசைப்பலகை & ஒலிப்புத் தட்டச்சு
 - ஒருங்குறி எழுத்துரு & குறியேற்ற மாற்றி
 - சொற்பிழை & சந்திப்பிழை திருத்தி
@@ -202,7 +452,7 @@ with tab_text:
     source = st.text_area(
         "திருத்த வேண்டிய உரை",
         height=200,
-        placeholder="தமிழில் தட்டச்சு செய்யவும் அல்லது குரல்வழித் தட்டச்சிலிருந்து நகலெடுத்து ஒட்டவும்...",
+        placeholder="தமிழில் தட்டச்சு செய்யவும் அல்லது குரல் தட்டச்சுப் பலகையிலிருந்து நகலெடுத்து ஒட்டவும்...",
         key="source_input",
         on_change=_clear_text_results,
     )
@@ -365,68 +615,61 @@ with tab_text:
 # =========================================================
 with tab_typing:
     t_sub_stt, t_sub1, t_sub2, t_sub3 = st.tabs([
-        "🎙️ குரல்வழித் தட்டச்சு (Speech-to-Text)",
+        "🎙️ குரல் தட்டச்சுப் பலகை (Speech-to-Text)",
         "⌨️ ஒலிப்பு & திரை விசைப்பலகை",
         "🔄 குறியேற்ற மாற்றி (Encoding)",
         "🔤 ஒருங்குறி எழுத்துருக்கள்",
     ])
 
     with t_sub_stt:
-        st.subheader("1. நேரடிக் குரல்வழித் தட்டச்சு (API Key தேவையில்லை)")
-        st.caption("Chrome அல்லது Edge உலாவியில் 'பேசத் தொடங்கு' பொத்தானை அழுத்தித் தமிழில் பேசினால் உடனடியாகத் தட்டச்சாகும்.")
-        _render_browser_tamil_stt()
+        _render_live_voice_typing_board()
 
         st.divider()
-        st.subheader("2. ஒலிப்பதிவு / ஒலிக்கோப்பை உரையாக மாற்றுதல் (Gemini AI)")
-        st.caption("நேரடியாகக் குரலைப் பதிவு செய்தோ அல்லது MP3/WAV ஒலிக்கோப்பைப் பதிவேற்றியோ துல்லியமான தமிழ் உரையாக மாற்றலாம்.")
+        with st.expander("பதிவுசெய்த ஒலிக்கோப்பை (MP3/WAV) Gemini AI மூலம் உரையாக மாற்ற"):
+            col_mic, col_up = st.columns(2)
+            with col_mic:
+                recorded_audio = st.audio_input("ஒலிவாங்கி வழி பதிவு செய்க")
+            with col_up:
+                uploaded_audio = st.file_uploader(
+                    "அல்லது ஒலிக்கோப்பைப் பதிவேற்றவும்",
+                    type=["wav", "mp3", "m4a", "ogg"],
+                    key="stt_file_upload",
+                )
 
-        col_mic, col_up = st.columns(2)
-        with col_mic:
-            recorded_audio = st.audio_input("ஒலிவாங்கி வழி நேரடியாகப் பதிவு செய்க")
-        with col_up:
-            uploaded_audio = st.file_uploader(
-                "அல்லது ஒலிக்கோப்பைப் பதிவேற்றவும்",
-                type=["wav", "mp3", "m4a", "ogg"],
-                key="stt_file_upload",
-            )
+            active_audio = recorded_audio or uploaded_audio
+            if st.button(
+                "ஒலிக்கோப்பைத் தமிழ் உரையாக மாற்று",
+                type="primary",
+                disabled=(not ai_is_configured() or active_audio is None),
+            ):
+                try:
+                    with st.spinner("ஒலிப்பதிவை Gemini AI தமிழ் எழுத்துகளாக மாற்றுகிறது..."):
+                        mime = getattr(active_audio, "type", None) or "audio/wav"
+                        st.session_state["stt_result"] = transcribe_tamil_audio(
+                            active_audio.getvalue(), mime_type=mime
+                        )
+                    st.success("ஒலிப்பதிவு வெற்றிகரமாக உரையாக மாற்றப்பட்டது.")
+                except Exception as exc:
+                    st.error(f"ஒலியை மாற்ற முடியவில்லை: {exc}")
 
-        active_audio = recorded_audio or uploaded_audio
-        if st.button(
-            "ஒலியைத் தமிழ் உரையாக மாற்று",
-            type="primary",
-            disabled=(not ai_is_configured() or active_audio is None),
-        ):
-            try:
-                with st.spinner("ஒலிப்பதிவை Gemini AI தமிழ் எழுத்துகளாக மாற்றுகிறது..."):
-                    mime = getattr(active_audio, "type", None) or "audio/wav"
-                    st.session_state["stt_result"] = transcribe_tamil_audio(
-                        active_audio.getvalue(), mime_type=mime
-                    )
-                st.success("ஒலிப்பதிவு வெற்றிகரமாக உரையாக மாற்றப்பட்டது.")
-            except Exception as exc:
-                st.error(f"ஒலியை மாற்ற முடியவில்லை: {exc}")
-
-        if not ai_is_configured():
-            st.info("ஒலிக்கோப்புகளை மாற்ற Gemini API Key தேவை; மேலே உள்ள உலாவி குரல் தட்டச்சு API இல்லாமலேயே இயங்கும்.")
-
-        if st.session_state["stt_result"]:
-            stt_edited = st.text_area(
-                "மாற்றப்பட்ட தமிழ் உரை",
-                value=st.session_state["stt_result"],
-                height=160,
-                key="stt_output_box",
-            )
-            b_send, b_dl = st.columns([1.2, 1])
-            if b_send.button("இந்த உரையை 'மொழித்திருத்தம்' தாவலுக்கு அனுப்பு", use_container_width=True):
-                st.session_state["source_input"] = stt_edited
-                st.success("உரை 'மொழித்திருத்தம்' தாவலில் நிரப்பப்பட்டுள்ளது!")
-            b_dl.download_button(
-                "உரையைப் பதிவிறக்கு (TXT)",
-                make_txt(stt_edited),
-                "inam-speech-to-text.txt",
-                "text/plain; charset=utf-8",
-                use_container_width=True,
-            )
+            if st.session_state["stt_result"]:
+                stt_edited = st.text_area(
+                    "மாற்றப்பட்ட தமிழ் உரை",
+                    value=st.session_state["stt_result"],
+                    height=140,
+                    key="stt_output_box",
+                )
+                b_send, b_dl = st.columns([1.2, 1])
+                if b_send.button("இந்த உரையை 'மொழித்திருத்தம்' தாவலுக்கு அனுப்பு", use_container_width=True):
+                    st.session_state["source_input"] = stt_edited
+                    st.success("உரை 'மொழித்திருத்தம்' தாவலில் நிரப்பப்பட்டுள்ளது!")
+                b_dl.download_button(
+                    "உரையைப் பதிவிறக்கு (TXT)",
+                    make_txt(stt_edited),
+                    "inam-speech-to-text.txt",
+                    "text/plain; charset=utf-8",
+                    use_container_width=True,
+                )
 
     with t_sub1:
         st.subheader("ஒலிப்புத் தட்டச்சுக் கருவி (Phonetic Transliteration)")
@@ -737,10 +980,10 @@ with tab_docs:
 # தாவல் 6: வழிகாட்டி
 # =========================================================
 with tab_guide:
-    st.subheader("பயன்பாட்டு வழிகாட்டி – இனம் 3.1")
+    st.subheader("பயன்பாட்டு வழிகாட்டி – இனம் 3.2")
     st.markdown("""
 - **மொழித்திருத்தம்:** சொற்பிழை, மயங்கொலிப் பிழை, வல்லினம் மிகும் சந்திப்பிழை ஆகியவற்றை API இல்லாமலேயே உடனடியாகத் திருத்தலாம்.
-- **தட்டச்சு & குரல்:** உலாவியின் நேரடிக் குரல்வழித் தட்டச்சு (Speech-to-Text), ஒலிப்பதிவு/ஒலிக்கோப்பு மாற்றம் (Gemini AI), ஒலிப்புத் தட்டச்சு, திரை விசைப்பலகை, Bamini / TSCII / TAB / TAM ↔ Unicode குறியேற்ற மாற்றி ஆகியவற்றைப் பயன்படுத்தலாம்.
+- **தட்டச்சு & குரல்:** பேசும்போதே உடனுக்குடன் ஒருங்குறியில் தட்டச்சாகும் **குரல் தட்டச்சுப் பலகை**, ஒலிப்புத் தட்டச்சு, திரை விசைப்பலகை, Bamini / TSCII / TAB / TAM ↔ Unicode குறியேற்ற மாற்றி ஆகியவற்றைப் பயன்படுத்தலாம்.
 - **சொல் & அகராதி:** தமிழ்ச்சொல் சுட்டி, தமிழ்-ஆங்கில அலுவல் அகராதி, தமிழ் அகர வரிசைப்படுத்தம் ஆகியவை உள்ளடக்கப்பட்டுள்ளன.
 - **ஆய்வு & எண் மாற்றி:** ஆய்வுக் கட்டுரைகளுக்கான சொல்லடைவு (Indexing), துணைநூற்பட்டியல் (Bibliography), எண் ↔ தமிழ் எழுத்து மாற்றி ஆகியவை இடம்பெற்றுள்ளன.
 - **அலுவல் ஆவணம்:** மாதிரி DOCX/TXT/PDF கோப்புகளைப் பின்பற்றி Gemini AI மூலம் புதிய அலுவல் ஆவணங்களை உருவாக்கலாம்.
