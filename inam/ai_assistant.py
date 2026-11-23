@@ -1,11 +1,12 @@
 """
-Ultra-fast Gemini integration for Inam Tamil Official Assistant.
+Ultra-fast Gemini integration with Smart Offline Document Formatting Fallback.
 """
 import os
 import re
 import time
 import json
 from io import BytesIO
+from datetime import datetime
 
 
 def _secret(name: str, default: str = "") -> str:
@@ -24,7 +25,7 @@ def get_gemini_api_key() -> str:
 
 
 def get_ai_model() -> str:
-    return _secret("GEMINI_MODEL", "gemini-3.8-flash")
+    return _secret("GEMINI_MODEL", "gemini-3.8-flash-lite")
 
 
 def ai_is_configured() -> bool:
@@ -42,7 +43,7 @@ def _new_client():
     try:
         return genai.Client(
             api_key=key,
-            http_options=types.HttpOptions(timeout=25000),
+            http_options=types.HttpOptions(timeout=20000),
         )
     except Exception:
         return genai.Client(api_key=key)
@@ -60,12 +61,12 @@ def _fast_config():
 
 
 def _call_gemini(contents, fast_mode: bool = True, preferred_models=None):
-    """Gemini 3.8 மாதிரிகளில் அதிவேக இயக்கம் மற்றும் 503 நெரிசல் மறுமுயற்சி."""
+    """Gemini 3.8 மாதிரிகளில் அதிவேக இயக்கம்; 429 வரம்பு முடிந்தால் உடனடி மாற்று."""
     primary_model = get_ai_model()
     default_chain = (
         primary_model,
-        "gemini-3.8-flash",
         "gemini-3.8-flash-lite",
+        "gemini-3.8-flash",
     )
     models_to_try = preferred_models if preferred_models else default_chain
 
@@ -74,38 +75,176 @@ def _call_gemini(contents, fast_mode: bool = True, preferred_models=None):
         if m and m not in unique_models:
             unique_models.append(m)
 
-    schedule = [(m, 0.0) for m in unique_models] + [
-        ("gemini-3.8-flash", 0.7),
-        ("gemini-3.8-flash-lite", 1.2),
-        ("gemini-3.8-flash", 1.8),
-    ]
-
     config = _fast_config() if fast_mode else None
     last_error = None
     client = _new_client()
 
     try:
-        for model_name, delay in schedule:
-            if delay > 0:
-                time.sleep(delay)
-            try:
-                kwargs = {"model": model_name, "contents": contents}
-                if config is not None:
-                    kwargs["config"] = config
-                response = client.models.generate_content(**kwargs)
-                answer = (getattr(response, "text", None) or "").strip()
-                if answer:
-                    return answer
-            except Exception as exc:
-                last_error = exc
-                continue
+        for model_name in unique_models:
+            for attempt in range(2):
+                if attempt > 0:
+                    time.sleep(0.8)
+                try:
+                    kwargs = {"model": model_name, "contents": contents}
+                    if config is not None:
+                        kwargs["config"] = config
+                    response = client.models.generate_content(**kwargs)
+                    answer = (getattr(response, "text", None) or "").strip()
+                    if answer:
+                        return answer
+                except Exception as exc:
+                    last_error = exc
+                    err_str = str(exc)
+                    # 429 (தினசரி வரம்பு முடிவு) அல்லது 404 எனில் அதே மாதிரியை மீண்டும் முயலாமல் அடுத்த மாதிரிக்குச் செல்லவும்
+                    if "429" in err_str or "RESOURCE_EXHAUSTED" in err_str or "404" in err_str:
+                        break
+                    continue
     finally:
         try:
             client.close()
         except Exception:
             pass
 
-    raise RuntimeError(f"Gemini வழங்கி தற்காலிகமாக அதிக நெரிசலில் உள்ளது: {last_error}")
+    raise RuntimeError(f"QUOTA_OR_BUSY: {last_error}")
+
+
+def _offline_format_voice_document(
+    spoken_text: str,
+    doc_style: str,
+    office_name: str = "",
+    place_date: str = "",
+) -> str:
+    """Gemini தினசரி வரம்பு (429) முடிந்தாலும் உள்ளூர் இலக்கண விதிகளுடன் அலுவல் ஆவணமாக வடிவமைக்கும்."""
+    from inam.corrector import correct_text, convert_to_official_style
+    from inam.tamil_tools import check_sandhi
+
+    cleaned, _ = correct_text(spoken_text.strip())
+    cleaned, _ = check_sandhi(cleaned)
+    formal_body, _ = convert_to_official_style(cleaned)
+
+    # தானியங்கி வகை கண்டறிதல்
+    resolved_style = doc_style
+    if "தானியங்கி" in doc_style:
+        if any(k in formal_body for k in ("செய்தியாளர்", "விழா", "நிகழ்வு", "பத்திரிகை", "பொதுமக்கள்", "அழைப்பு")):
+            resolved_style = "பரப்புரை / செய்தி அறிக்கை"
+        elif any(k in formal_body for k in ("அரசாணை", "அரசு", "ஆணை", "மாவட்ட ஆட்சியர்", "துறைச் செயலாளர்")):
+            resolved_style = "அரசு அறிக்கை / ஆணை"
+        elif any(k in formal_body for k in ("கூட்டம்", "தீர்மானம்", "உறுப்பினர்கள்", "தலைமையில்")):
+            resolved_style = "கூட்டறிக்கை"
+        elif any(k in formal_body for k in ("அனுப்புநர்", "பெறுநர்", "ஐயா", "வேண்டுகோள்")):
+            resolved_style = "அலுவல் கடிதம்"
+        else:
+            resolved_style = "சுற்றறிக்கை"
+
+    today_str = place_date.strip() if place_date.strip() else datetime.now().strftime("%d.%m.%Y")
+    org_header = office_name.strip() if office_name.strip() else "[அலுவலகம் / நிறுவனத்தின் பெயர்]"
+    first_line = formal_body.splitlines()[0][:65].rstrip(".,")
+
+    if "பரப்புரை" in resolved_style or "செய்தி" in resolved_style:
+        return (
+            f"{org_header}\n"
+            f"செய்தி / பரப்புரை அறிக்கை\n"
+            f"இடம் & நாள்: {today_str}\n"
+            f"{'-' * 55}\n\n"
+            f"தலைப்பு: {first_line}\n\n"
+            f"{formal_body}\n\n"
+            f"வெளியீடு:\n"
+            f"மக்கள் தொடர்பு / ஒருங்கிணைப்பாளர்\n"
+            f"{org_header}"
+        )
+
+    if "அரசு" in resolved_style:
+        return (
+            f"தமிழ்நாடு அரசு\n"
+            f"{org_header}\n\n"
+            f"அரசு அறிக்கை / செயல்முறை ஆணை\n"
+            f"ந.க.எண்: [எண் நிரப்பப்பட வேண்டும்]                நாள்: {today_str}\n"
+            f"{'-' * 55}\n"
+            f"பொருள்: {first_line} – தொடர்பாக.\n\n"
+            f"ஆணை:\n"
+            f"    {formal_body}\n\n"
+            f"                              அலுவலகத் தலைவர் / செயலாளர்\n"
+            f"                              {org_header}"
+        )
+
+    if "கூட்டறிக்கை" in resolved_style:
+        return (
+            f"{org_header}\n"
+            f"கூட்டறிக்கை (Minutes of Meeting)\n"
+            f"இடம் & நாள்: {today_str}\n"
+            f"{'-' * 55}\n"
+            f"பொருள்: {first_line}\n\n"
+            f"கூட்டத்தில் விவாதிக்கப்பட்டு எடுக்கப்பட்ட முடிவுகள்:\n"
+            f"1. {formal_body}\n\n"
+            f"ஒருங்கிணைப்பாளர்                                  தலைவர்"
+        )
+
+    if "அலுவல் கடிதம்" in resolved_style:
+        return (
+            f"அனுப்புநர்\n"
+            f"    {org_header}\n\n"
+            f"பெறுநர்\n"
+            f"    [பெறுநர் பதவி மற்றும் முகவரி]\n\n"
+            f"ந.க.எண்: [எண்]                                  நாள்: {today_str}\n\n"
+            f"ஐயா / அம்மையீர்,\n"
+            f"    பொருள்: {first_line} – சார்பு.\n\n"
+            f"    {formal_body}\n\n"
+            f"                                        தங்கள் உண்மையுள்ள,\n"
+            f"                                        [கையொப்பம் / பதவி]"
+        )
+
+    # இயல்புநிலை: சுற்றறிக்கை (Circular)
+    return (
+        f"{org_header}\n"
+        f"சுற்றறிக்கை\n"
+        f"ந.க.எண்: [எண் நிரப்பப்பட வேண்டும்]                நாள்: {today_str}\n"
+        f"{'-' * 55}\n"
+        f"பொருள்: {first_line} – தொடர்பாக.\n\n"
+        f"    {formal_body}\n\n"
+        f"    அனைவரும் இதனைக் கவனத்தில் கொண்டு உரிய நடவடிக்கை மேற்கொள்ளுமாறு "
+        f"கேட்டுக்கொள்ளப்படுகிறார்கள்.\n\n"
+        f"                                        முதல்வர் / அலுவலகத் தலைவர்\n"
+        f"                                        {org_header}"
+    )
+
+
+def format_voice_to_document(
+    spoken_text: str,
+    doc_style: str = "தானியங்கி (செய்தியின் தன்மைக்கு ஏற்ப)",
+    office_name: str = "",
+    place_date: str = "",
+) -> tuple[str, bool]:
+    """(வடிவமைக்கப்பட்ட_ஆவணம், AI_பயன்படுத்தப்பட்டதா) எனத் திருப்பித் தரும்."""
+    if not spoken_text.strip():
+        raise ValueError("உரை காலியாக உள்ளது.")
+
+    if get_gemini_api_key():
+        prompt = f"""
+நீங்கள் தமிழ்நாடு அரசு, பல்கலைக்கழகம் மற்றும் மக்கள் தொடர்புத் துறையின் மூத்த தமிழ் ஆவண வடிவமைப்பாளர்.
+
+பயனர் குரல் வழியாகப் பேசித் தட்டச்சு செய்த மூல உரை கீழே கொடுக்கப்பட்டுள்ளது.
+தேர்ந்தெடுக்கப்பட்ட ஆவண வடிவம்: **{doc_style}**
+அலுவலகம் / அமைப்பு: {office_name or "செய்திக்கு ஏற்ப அமைக்கவும்"}
+இடம் / நாள்: {place_date or "செய்திக்கு ஏற்ப அமைக்கவும்"}
+
+கட்டாய விதிகள்:
+1. **"தானியங்கி (செய்தியின் தன்மைக்கு ஏற்ப)"** எனத் தேர்ந்தெடுக்கப்பட்டிருந்தால், உள்ளீட்டுச் செய்தி எதைப் பற்றியது என்பதைப் பகுப்பாய்ந்து—அது **சுற்றறிக்கை**, **பரப்புரை / செய்தி அறிக்கை**, **அரசு அறிக்கை / ஆணை**, **அலுவல் கடிதம்**, அல்லது **கூட்டறிக்கை** ஆகியவற்றில் எதற்குப் பொருந்துமோ அந்தத் துல்லியமான வடிவமைப்பைத் தேர்ந்தெடுத்து உருவாக்கவும்.
+2. குரல் தட்டச்சில் ஏற்படும் ஒலிப்புப் பிழைகள், மயங்கொலிப் பிழைகள் (ண/ந/ன, ல/ள/ழ, ர/ற), சந்திப் பிழைகள் மற்றும் பேச்சுவழக்குச் சொற்களைக் களைந்து **தூய செந்தமிழ் அலுவல் நடையில்** எழுதவும்.
+3. தலைப்பு, ந.க.எண் / அறிக்கை எண், நாள், பொருள், தெளிவான பத்திகள், மற்றும் கையொப்பம் / வெளியீட்டாளர் பகுதியை முறையாக அமைக்கவும்.
+4. முன்னுரை அல்லது விளக்கம் எதுவுமின்றி, நேரடியாக Word ஆவணத்தில் அச்சிடத் தகுந்த இறுதி ஆவண உரையை மட்டும் வழங்கவும்.
+
+குரல் வழித் தட்டச்சு செய்த செய்தி:
+{spoken_text}
+"""
+        try:
+            ai_doc = _call_gemini(prompt, fast_mode=True)
+            return ai_doc, True
+        except Exception:
+            pass
+
+    # Gemini வரம்பு (429) முடிந்திருந்தால் உடனடியாக உள்ளூர் ஆவண வடிவமைப்பை வழங்குதல்
+    offline_doc = _offline_format_voice_document(spoken_text, doc_style, office_name, place_date)
+    return offline_doc, False
 
 
 def improve_with_ai(text: str) -> str:
@@ -118,7 +257,6 @@ def improve_with_ai(text: str) -> str:
 
 
 def improve_with_ai_detailed(text: str, rule_findings: list) -> tuple:
-    """நொடிப்பொழுதில் எழுத்து, மயங்கொலி, சந்திப் பிழைகளைத் திருத்தி JSON தருதல்."""
     prompt = (
         "தமிழ் இலக்கணப் பிழைதிருத்தி. கீழுள்ள உரையில் உள்ள எழுத்து, மயங்கொலி (ண/ந/ன, ல/ள/ழ, ர/ற), "
         "சந்திப் பிழைகளைத் திருத்தி JSON மட்டும் தரவும்.\n"
@@ -138,41 +276,9 @@ def improve_with_ai_detailed(text: str, rule_findings: list) -> tuple:
         return raw.strip(), []
 
 
-def format_voice_to_document(
-    spoken_text: str,
-    doc_style: str = "தானியங்கி (செய்தியின் தன்மைக்கு ஏற்ப)",
-    office_name: str = "",
-    place_date: str = "",
-) -> str:
-    """குரல் வழித் தட்டச்சு செய்த உரையைச் சுற்றறிக்கை, பரப்புரை அறிக்கை, அரசு அறிக்கை வடிவில் உருவாக்கும்."""
-    if not spoken_text.strip():
-        raise ValueError("உரை காலியாக உள்ளது.")
-
-    prompt = f"""
-நீங்கள் தமிழ்நாடு அரசு, பல்கலைக்கழகம் மற்றும் மக்கள் தொடர்புத் துறையின் மூத்த தமிழ் ஆவண வடிவமைப்பாளர்.
-
-பயனர் குரல் வழியாகப் பேசித் தட்டச்சு செய்த மூல உரை கீழே கொடுக்கப்பட்டுள்ளது.
-தேர்ந்தெடுக்கப்பட்ட ஆவண வடிவம்: **{doc_style}**
-அலுவலகம் / அமைப்பு (தரப்பட்டிருந்தால்): {office_name or "செய்திக்கு ஏற்ப அமைக்கவும்"}
-இடம் / நாள் (தரப்பட்டிருந்தால்): {place_date or "செய்திக்கு ஏற்ப அமைக்கவும்"}
-
-கட்டாய விதிகள்:
-1. **"தானியங்கி (செய்தியின் தன்மைக்கு ஏற்ப)"** எனத் தேர்ந்தெடுக்கப்பட்டிருந்தால், உள்ளீட்டுச் செய்தி எதைப் பற்றியது என்பதைப் பகுப்பாய்ந்து—அது **சுற்றறிக்கை**, **பரப்புரை / செய்தி அறிக்கை**, **அரசு அறிக்கை / ஆணை**, **அலுவல் கடிதம்**, அல்லது **கூட்டறிக்கை** ஆகியவற்றில் எதற்குப் பொருந்துமோ அந்தத் துல்லியமான வடிவமைப்பைத் தேர்ந்தெடுத்து உருவாக்கவும்.
-2. குரல் தட்டச்சில் இயல்பாக ஏற்படும் ஒலிப்புப் பிழைகள், மயங்கொலிப் பிழைகள் (ண/ந/ன, ல/ள/ழ, ர/ற), சந்திப் பிழைகள் மற்றும் பேச்சுவழக்குச் சொற்களை முழுமையாகக் களைந்து **தூய செந்தமிழ் அலுவல் நடையில்** எழுதவும்.
-3. தேர்ந்தெடுக்கப்பட்ட வடிவத்திற்கு ஏற்பத் தலைப்பு, ந.க.எண் / அறிக்கை எண், நாள், பொருள், தெளிவான பத்திகள், மற்றும் கையொப்பம் / வெளியீட்டாளர் பகுதியை முறையாக அமைக்கவும்.
-4. தரப்படாத பெயர்/எண்களுக்கு `[விவரம் நிரப்பப்பட வேண்டும்]` என இடவும்.
-5. முன்னுரை அல்லது விளக்கம் எதுவுமின்றி, நேரடியாக Word ஆவணத்தில் அச்சிடத் தகுந்த இறுதி ஆவண உரையை மட்டும் வழங்கவும்.
-
-குரல் வழித் தட்டச்சு செய்த செய்தி:
-{spoken_text}
-"""
-    return _call_gemini(prompt, fast_mode=True)
-
-
 def transcribe_tamil_audio(
     audio_bytes: bytes, mime_type: str = "audio/wav", filename: str = ""
 ) -> str:
-    """தமிழ் ஒலிப்பதிவை (.webm, .wav, .mp3, .m4a, .ogg) Gemini மூலம் தமிழ் ஒருங்குறி உரையாக மாற்றும்."""
     if not audio_bytes:
         raise ValueError("ஒலிப்பதிவுத் தரவு காலியாக உள்ளது.")
 
@@ -212,7 +318,7 @@ def transcribe_tamil_audio(
     return _call_gemini(
         [prompt, audio_part],
         fast_mode=True,
-        preferred_models=("gemini-3.8-flash", "gemini-3.8-flash-lite"),
+        preferred_models=("gemini-3.8-flash-lite", "gemini-3.8-flash"),
     )
 
 
