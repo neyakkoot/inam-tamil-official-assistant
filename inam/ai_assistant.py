@@ -133,6 +133,30 @@ def improve_with_ai_detailed(text: str, rule_findings: list) -> tuple[str, list]
         return raw.strip(), []
 
 
+def transcribe_tamil_audio(audio_bytes: bytes, mime_type: str = "audio/wav") -> str:
+    """தமிழ் ஒலிப்பதிவை Gemini AI மூலம் துல்லியமான தமிழ் ஒருங்குறி உரையாக மாற்றும்."""
+    if not audio_bytes:
+        raise ValueError("ஒலிப்பதிவுத் தரவு காலியாக உள்ளது.")
+
+    try:
+        from google.genai import types
+    except ImportError as exc:
+        raise RuntimeError(
+            "google-genai தொகுப்பு நிறுவப்படவில்லை. pip install -U google-genai என இயக்கவும்."
+        ) from exc
+
+    audio_part = types.Part.from_bytes(
+        data=audio_bytes,
+        mime_type=mime_type or "audio/wav",
+    )
+    prompt = (
+        "இந்த ஒலிப்பதிவில் பேசப்பட்டுள்ள தமிழ் உரையைத் துல்லியமாகவும், "
+        "எழுத்துப் பிழை மற்றும் மயங்கொலிப் பிழையின்றியும் தமிழ் ஒருங்குறி (Unicode) எழுத்துகளில் மட்டும் எழுதித் தரவும். "
+        "கூடுதல் விளக்கங்களோ முன்னுரையோ வேண்டாம்; பேசப்பட்ட உரையை மட்டும் வழங்கவும்."
+    )
+    return _call_gemini([prompt, audio_part], fast_mode=True)
+
+
 def _document_prompt(doc_type: str, details: dict) -> str:
     return f"""
 நீங்கள் தமிழ்நாடு அரசு மற்றும் கல்வி நிறுவனங்களின் அலுவல் ஆவணங்களைப் பிழையின்றி உருவாக்கும் வல்லுநர்.
