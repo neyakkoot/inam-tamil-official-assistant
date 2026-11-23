@@ -24,7 +24,7 @@ def get_gemini_api_key() -> str:
 
 
 def get_ai_model() -> str:
-    return _secret("GEMINI_MODEL", "gemini-3.8-flash-lite")
+    return _secret("GEMINI_MODEL", "gemini-3.8-flash")
 
 
 def ai_is_configured() -> bool:
@@ -57,17 +57,20 @@ def _fast_config():
         return None
 
 
-def _call_gemini(contents, fast_mode: bool = True):
-    """Instant execution with automatic fallback across available models."""
+def _call_gemini(contents, fast_mode: bool = True, preferred_models: tuple = None):
+    """Instant execution with automatic fallback across valid models."""
     primary_model = get_ai_model()
-    candidate_models = []
-    for m in (
+    default_chain = (
         primary_model,
-        "gemini-3.8-flash-lite",
         "gemini-3.8-flash",
+        "gemini-3.8-flash-lite",
+        "gemini-2.5-flash",
         "gemini-2.5-flash-lite",
-        "gemini-2.0-flash",
-    ):
+    )
+    models_to_try = preferred_models if preferred_models else default_chain
+
+    candidate_models = []
+    for m in models_to_try:
         if m and m not in candidate_models:
             candidate_models.append(m)
 
@@ -89,7 +92,7 @@ def _call_gemini(contents, fast_mode: bool = True):
         except Exception as exc:
             last_error = exc
             if idx == 0:
-                time.sleep(0.5)
+                time.sleep(0.4)
             continue
         finally:
             if client is not None:
@@ -98,7 +101,7 @@ def _call_gemini(contents, fast_mode: bool = True):
                 except Exception:
                     pass
 
-    raise RuntimeError(f"503_HIGH_DEMAND: {last_error}")
+    raise RuntimeError(f"AI சேவை தற்காலிகமாகப் பரபரப்பாக உள்ளது: {last_error}")
 
 
 def improve_with_ai(text: str) -> str:
@@ -136,7 +139,7 @@ def improve_with_ai_detailed(text: str, rule_findings: list) -> tuple[str, list]
 def transcribe_tamil_audio(
     audio_bytes: bytes, mime_type: str = "audio/wav", filename: str = ""
 ) -> str:
-    """தமிழ் ஒலிப்பதிவை (.wav, .mp3, .webm, .m4a, .ogg) Gemini AI மூலம் தமிழ் ஒருங்குறி உரையாக மாற்றும்."""
+    """தமிழ் ஒலிப்பதிவை (.webm, .wav, .mp3, .m4a, .ogg) Gemini AI மூலம் தமிழ் ஒருங்குறி உரையாக மாற்றும்."""
     if not audio_bytes:
         raise ValueError("ஒலிப்பதிவுத் தரவு காலியாக உள்ளது.")
 
@@ -186,6 +189,7 @@ def transcribe_tamil_audio(
         fast_mode=False,
         preferred_models=("gemini-3.8-flash", "gemini-2.5-flash"),
     )
+
 
 def _document_prompt(doc_type: str, details: dict) -> str:
     return f"""
