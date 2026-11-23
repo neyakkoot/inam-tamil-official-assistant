@@ -1,8 +1,34 @@
+import json
 import re
 from collections import Counter
+from pathlib import Path
 
 # ---------------------------------------------------------
-# 1. ஒலிப்புத் தட்டச்சு (Phonetic Transliteration - Basic)
+# 0. அகராதித் தரவுத்தளம் ஏற்றுதல் (JSON Dictionary Loader)
+# ---------------------------------------------------------
+DICT_PATH = Path(__file__).parent / "dictionary_data.json"
+
+
+def load_dictionary() -> dict:
+    if DICT_PATH.exists():
+        try:
+            with open(DICT_PATH, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return {
+        "அலுவல்": {
+            "meaning": "அரசு அல்லது நிறுவனப் பணி, கடமை (Official duty)",
+            "synonyms": ["பணி", "கடமை", "வினை"],
+            "english": "Official",
+        }
+    }
+
+
+TAMIL_DICTIONARY = load_dictionary()
+
+# ---------------------------------------------------------
+# 1. ஒலிப்புத் தட்டச்சு (Phonetic Transliteration)
 # ---------------------------------------------------------
 VOWELS = {
     "aa": "ஆ", "A": "ஆ", "a": "அ",
@@ -36,7 +62,6 @@ CONSONANTS = {
 
 
 def phonetic_to_tamil(text: str) -> str:
-    """ஆங்கில எழுத்துகளில் உள்ள ஒலிப்புத் தமிழை ஒருங்குறித் தமிழாக மாற்றும்."""
     result = []
     i = 0
     n = len(text)
@@ -49,31 +74,18 @@ def phonetic_to_tamil(text: str) -> str:
             i += 1
             continue
 
-        matched_cons = None
-        for ck in cons_keys:
-            if text[i:].startswith(ck):
-                matched_cons = ck
-                break
-
+        matched_cons = next((ck for ck in cons_keys if text[i:].startswith(ck)), None)
         if matched_cons:
             base_char = CONSONANTS[matched_cons][0]
             i += len(matched_cons)
-            matched_vowel = None
-            for vk in vowel_keys:
-                if text[i:].startswith(vk):
-                    matched_vowel = vk
-                    break
+            matched_vowel = next((vk for vk in vowel_keys if text[i:].startswith(vk)), None)
             if matched_vowel:
                 result.append(base_char + VOWEL_SIGNS[matched_vowel])
                 i += len(matched_vowel)
             else:
                 result.append(base_char + "்")
         else:
-            matched_vowel = None
-            for vk in vowel_keys:
-                if text[i:].startswith(vk):
-                    matched_vowel = vk
-                    break
+            matched_vowel = next((vk for vk in vowel_keys if text[i:].startswith(vk)), None)
             if matched_vowel:
                 result.append(VOWELS[matched_vowel])
                 i += len(matched_vowel)
@@ -84,9 +96,9 @@ def phonetic_to_tamil(text: str) -> str:
 
 
 # ---------------------------------------------------------
-# 2. குறியேற்ற மாற்றி (Encoding Converter: TSCII / TAB -> Unicode)
+# 2. குறியேற்ற மாற்றி (TSCII / Bamini / TAB / TAM <-> Unicode)
 # ---------------------------------------------------------
-TSCII_TO_UNICODE_MAP = {
+TSCII_MAP = {
     "þ": "இ", "ÿ": "ஈ", "«": "அ", "¬": "ஆ", "­": "உ", "®": "ஊ",
     "¯": "எ", "°": "ஏ", "±": "ஐ", "²": "ஒ", "³": "ஓ", "´": "ஔ",
     "¸": "க", "¹": "ங", "º": "ச", "»": "ஞ", "¼": "ட", "½": "ண",
@@ -96,22 +108,78 @@ TSCII_TO_UNICODE_MAP = {
     "¦": "ெ", "§": "ே", "¨": "ை", "ì": "்",
 }
 
+BAMINI_MAP = {
+    "m": "அ", "M": "ஆ", ",": "இ", "<": "ஈ", "c": "உ", "C": "ஊ",
+    "v": "எ", "V": "ஏ", "I": "ஐ", "x": "ஒ", "X": "ஓ", "xs": "ஔ",
+    "f": "க", "q": "ங", "r": "ச", "Q": "ஞ", "l": "ட", "z": "ண",
+    "j": "த", "e": "ந", "g": "ப", "k": "ம", "a": "ய", "u": "ர",
+    "y": "ல", "t": "வ", "o": "ழ", "s": "ள", "w": "ற", "d": "ன",
+    "h": "ா", "p": "ி", "P": "ீ", "F": "கு", "R": "சு", "L": "டு",
+    "Z": "ணு", "J": "து", "E": "நு", "G": "பு", "K": "மு", "A": "யு",
+    "U": "ரு", "Y": "லு", "T": "வு", "O": "ழு", "S": "ளு", "W": "று",
+    "D": "னு", "n": "ெ", "N": "ே", "i": "ை", ";": "்",
+}
+
+TAB_MAP = {
+    "Ü": "அ", "Ý": "ஆ", "Þ": "இ", "ß": "ஈ", "à": "உ", "á": "ஊ",
+    "â": "எ", "ã": "ஏ", "ä": "ஐ", "å": "ஒ", "æ": "ஓ", "ç": "ஔ",
+    "è": "க", "é": "ங", "ê": "ச", "ë": "ஞ", "ì": "ட", "í": "ண",
+    "î": "த", "ï": "ந", "ð": "ப", "ñ": "ம", "ò": "ய", "ó": "ர",
+    "ô": "ல", "õ": "வ", "ö": "ழ", "÷": "ள", "ø": "ற", "ù": "ன",
+    "¡": "ா", "¢": "ி", "£": "ீ", "¤": "ு", "¥": "ூ",
+    "¦": "ெ", "§": "ே", "¨": "ை", "¬": "்",
+}
+
+TAM_MAP = {
+    "¡": "அ", "¢": "ஆ", "£": "இ", "¤": "ஈ", "¥": "உ", "¦": "ஊ",
+    "§": "எ", "¨": "ஏ", "©": "ஐ", "ª": "ஒ", "«": "ஓ", "¬": "ஔ",
+    "­": "க", "®": "ங", "¯": "ச", "°": "ஞ", "±": "ட", "²": "ண",
+    "³": "த", "´": "ந", "µ": "ப", "¶": "ம", "·": "ய", "¸": "ர",
+    "¹": "ல", "º": "வ", "»": "ழ", "¼": "ள", "½": "ற", "¾": "ன",
+    "¿": "ா", "À": "ி", "Á": "ீ", "Â": "ு", "Ã": "ூ",
+    "Ä": "ெ", "Å": "ே", "Æ": "ை", "Ç": "்",
+}
+
+
+def _apply_legacy_to_unicode(text: str, mapping: dict) -> str:
+    out = text
+    # நீளமான குறியீடுகளை முதலில் மாற்றல்
+    for k in sorted(mapping.keys(), key=len, reverse=True):
+        out = out.replace(k, mapping[k])
+    # கொம்பு எழுத்துகளை (ெ, ே, ை) உயிர்மெய் ஒழுங்கிற்கு மாற்றல்
+    out = re.sub(r"([ெேை])([க-ஹ])", r"\2\1", out)
+    # ொ, ோ, ௌ இணைப்புச் சீரமைப்பு
+    out = out.replace("ொ", "ொ").replace("ோ", "ோ").replace("ெள", "ௌ")
+    return out
+
+
+def _apply_unicode_to_legacy(text: str, mapping: dict) -> str:
+    rev_map = {v: k for k, v in mapping.items()}
+    out = text.replace("ொ", "ொ").replace("ோ", "ோ").replace("ௌ", "ெள")
+    out = re.sub(r"([க-ஹ])([ெேை])", r"\2\1", out)
+    for k in sorted(rev_map.keys(), key=len, reverse=True):
+        out = out.replace(k, rev_map[k])
+    return out
+
 
 def convert_encoding(text: str, mode: str) -> str:
-    """பழைய எழுத்துருக் குறியேற்றங்களை ஒருங்குறிக்கு மாற்றும் அடிப்படைச் செயலி."""
+    """TSCII, Bamini, TAB, TAM மற்றும் Unicode இடையே மாற்றும்."""
     if mode == "TSCII -> Unicode (ஒருங்குறி)":
-        # கொம்பு எழுத்துகளை (ெ, ே, ை) முறைப்படுத்தல்
-        out = text
-        for k, v in TSCII_TO_UNICODE_MAP.items():
-            out = out.replace(k, v)
-        out = re.sub(r"([ெேை])([க-ஹ])", r"\2\1", out)
-        return out
+        return _apply_legacy_to_unicode(text, TSCII_MAP)
     elif mode == "Unicode -> TSCII":
-        rev_map = {v: k for k, v in TSCII_TO_UNICODE_MAP.items()}
-        out = re.sub(r"([க-ஹ])([ெேை])", r"\2\1", text)
-        for k, v in rev_map.items():
-            out = out.replace(k, v)
-        return out
+        return _apply_unicode_to_legacy(text, TSCII_MAP)
+    elif mode == "Bamini (பாமினி) -> Unicode (ஒருங்குறி)":
+        return _apply_legacy_to_unicode(text, BAMINI_MAP)
+    elif mode == "Unicode -> Bamini (பாமினி)":
+        return _apply_unicode_to_legacy(text, BAMINI_MAP)
+    elif mode == "TAB -> Unicode (ஒருங்குறி)":
+        return _apply_legacy_to_unicode(text, TAB_MAP)
+    elif mode == "Unicode -> TAB":
+        return _apply_unicode_to_legacy(text, TAB_MAP)
+    elif mode == "TAM -> Unicode (ஒருங்குறி)":
+        return _apply_legacy_to_unicode(text, TAM_MAP)
+    elif mode == "Unicode -> TAM":
+        return _apply_unicode_to_legacy(text, TAM_MAP)
     return text
 
 
@@ -124,17 +192,15 @@ SANDHI_RULES = [
     (r"\b(தனி|புது|பொது)\s+([கசதப])", r"\1 \2்\2", "பண்புத்தொகை/நிலைமொழிப் பின் வல்லினம் மிகும்"),
     (r"([அ-ஔக-ஹா-ௌ])க்கு\s+([கசதப])", r"\1க்கு \2்\2", "நான்காம் வேற்றுமை உருபு ('கு') பின் வல்லினம் மிகும்"),
     (r"([அ-ஔக-ஹா-ௌ])ஐ\s+([கசதப])", r"\1ஐ \2்\2", "இரண்டாம் வேற்றுமை விரி ('ஐ') பின் வல்லினம் மிகும்"),
-    (r"\b(இங்கு|அங்கு|எங்கு|இனி|தனி)\s+([கசதப])", r"\1 \2்\2", "இடப்பெயர்/இடைச்சொல் பின் வல்லினம் மிகும்"),
+    (r"\b(இங்கு|அங்கு|எங்கு|இனி)\s+([கசதப])", r"\1 \2்\2", "இடப்பெயர்/இடைச்சொல் பின் வல்லினம் மிகும்"),
 ]
 
 
 def check_sandhi(text: str):
-    """வல்லினம் மிகும் இடங்களைக் கண்டறிந்து திருத்தும்."""
     corrected = text
     notes = []
     for pattern, repl, desc in SANDHI_RULES:
-        matches = list(re.finditer(pattern, corrected))
-        if matches:
+        if re.search(pattern, corrected):
             corrected = re.sub(pattern, repl, corrected)
             notes.append(desc)
     return corrected, list(dict.fromkeys(notes))
@@ -143,64 +209,29 @@ def check_sandhi(text: str):
 # ---------------------------------------------------------
 # 4. தமிழ்ச்சொல் சுட்டி & அகராதி (Word Suggester & Dictionary)
 # ---------------------------------------------------------
-TAMIL_DICTIONARY = {
-    "அலுவல்": {
-        "meaning": "அரசு அல்லது நிறுவனப் பணி, கடமை, தொழில் (Official duty / Business)",
-        "synonyms": ["பணி", "கடமை", "வினை", "கருமம்"],
-    },
-    "சுற்றறிக்கை": {
-        "meaning": "பலருக்கும் பொதுவாக அனுப்பப்படும் அலுவல் அறிவிப்பு (Circular)",
-        "synonyms": ["பொதுஅறிவிப்பு", "அறிக்கை", "சுற்றுமடல்"],
-    },
-    "குறிப்பாணை": {
-        "meaning": "அலுவலக உள்ளகத் தகவல் அல்லது நினைவூட்டல் குறிப்பு (Memorandum)",
-        "synonyms": ["நினைவுக் குறிப்பு", "அலுவல் குறிப்பு"],
-    },
-    "ஒப்புதல்": {
-        "meaning": "இசைவு அளித்தல், ஏற்றுக்கொள்ளுதல் (Approval / Consent)",
-        "synonyms": ["இசைவு", "ஏற்பு", "அனுமதி"],
-    },
-    "ஆவணம்": {
-        "meaning": "சான்றாகப் பயன்படும் எழுத்துப் படிவம் அல்லது பதிவு (Document / Record)",
-        "synonyms": ["பதிவுரு", "சான்றுப் படிவம்", "ஏடு"],
-    },
-    "நடவடிக்கை": {
-        "meaning": "ஒரு செயலை நிறைவேற்ற எடுக்கும் முயற்சி அல்லது செயல்பாடு (Action / Proceeding)",
-        "synonyms": ["செயல்பாடு", "முயற்சி", "நடப்பு"],
-    },
-    "பரிந்துரை": {
-        "meaning": "ஒருவரை அல்லது ஒரு கருத்தை ஆதரித்துப் பேசும்/எழுதும் உரை (Recommendation)",
-        "synonyms": ["முன்மொழிவு", "ஆதரவுரை"],
-    },
-    "தொகுப்பு": {
-        "meaning": "பலவற்றை ஒன்றாகச் சேர்த்த அமைப்பு (Compilation / Collection)",
-        "synonyms": ["திரட்டு", "கோவை", "கலவை"],
-    },
-    "இணைப்பு": {
-        "meaning": "கடிதம் அல்லது ஆவணத்துடன் சேர்க்கப்படும் கூடுதல் தாள் (Attachment / Enclosure)",
-        "synonyms": ["சேர்க்கை", "உள்ளிணைப்பு"],
-    },
-    "கையொப்பம்": {
-        "meaning": "ஒருவரின் ஒப்புதலைக் குறிக்கும் கையெழுத்து (Signature)",
-        "synonyms": ["கையெழுத்து", "ஒப்பம்"],
-    },
-}
-
-
 def suggest_tamil_words(prefix: str):
-    """உள்ளிட்ட எழுத்துகளுக்கு ஏற்பத் தமிழ்ச் சொற்களைப் பரிந்துரைக்கும்."""
     prefix = prefix.strip()
     if not prefix:
         return []
     return [w for w in TAMIL_DICTIONARY if w.startswith(prefix) or prefix in w]
 
 
-def lookup_dictionary(word: str):
-    """அகராதியில் சொற்பொருள் மற்றும் இணைச்சொற்களைத் தேடும்."""
-    word = word.strip()
-    if word in TAMIL_DICTIONARY:
-        return TAMIL_DICTIONARY[word]
-    matches = {k: v for k, v in TAMIL_DICTIONARY.items() if word in k}
+def lookup_dictionary(query: str):
+    query = query.strip()
+    if not query:
+        return None
+    if query in TAMIL_DICTIONARY:
+        return TAMIL_DICTIONARY[query]
+    matches = {}
+    q_lower = query.lower()
+    for k, v in TAMIL_DICTIONARY.items():
+        if (
+            query in k
+            or query in v.get("meaning", "")
+            or any(query in s for s in v.get("synonyms", []))
+            or q_lower in v.get("english", "").lower()
+        ):
+            matches[k] = v
     return matches if matches else None
 
 
@@ -220,7 +251,6 @@ def _tamil_sort_key(word: str):
 
 
 def sort_tamil_lines(lines: list[str], reverse: bool = False) -> list[str]:
-    """தமிழ் அகர வரிசைப்படி சொற்கள் அல்லது வரிகளை அடுக்கும்."""
     cleaned = [line.strip() for line in lines if line.strip()]
     return sorted(cleaned, key=_tamil_sort_key, reverse=reverse)
 
@@ -229,7 +259,6 @@ def sort_tamil_lines(lines: list[str], reverse: bool = False) -> list[str]:
 # 6. சொல்லடைவு உருவாக்கி (Word Indexing / Concordance)
 # ---------------------------------------------------------
 def build_word_index(text: str, min_length: int = 2):
-    """உரையில் உள்ள சொற்களின் நிகழ்வெண் மற்றும் வரி எண்களைக் கணக்கிடும்."""
     lines = text.splitlines()
     word_lines = {}
     counter = Counter()
@@ -262,7 +291,6 @@ def format_bibliography(
     place: str = "",
     style: str = "தமிழ் ஆய்வு நடை (Inam Style)",
 ) -> str:
-    """ஆய்வுக் கட்டுரைகள் மற்றும் நூல்களுக்கான துணைநூற்பட்டியலை உருவாக்கும்."""
     author = author.strip()
     year = year.strip()
     title = title.strip()
@@ -327,7 +355,6 @@ def _three_digits(n: int) -> str:
 
 
 def number_to_tamil_words(num: int) -> str:
-    """முழு எண்களைத் தமிழ் எழுத்துகளாக மாற்றும் (கோடி வரை)."""
     if num == 0:
         return "சுழியம்"
     if num < 0:
@@ -380,7 +407,6 @@ MULTIPLIERS = {
 
 
 def tamil_words_to_number(phrase: str) -> int:
-    """தமிழ் எண்ணுப் பெயர்களை எண்களாக மாற்றும்."""
     tokens = phrase.strip().split()
     total = 0
     current = 0
