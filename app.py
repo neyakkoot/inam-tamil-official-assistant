@@ -621,18 +621,18 @@ with tab_typing:
         "🔤 ஒருங்குறி எழுத்துருக்கள்",
     ])
 
-    with t_sub_stt:
+with t_sub_stt:
         _render_live_voice_typing_board()
 
         st.divider()
-        with st.expander("பதிவுசெய்த ஒலிக்கோப்பை (MP3/WAV) Gemini AI மூலம் உரையாக மாற்ற"):
+        with st.expander("பதிவுசெய்த ஒலிக்கோப்பை (.webm, .mp3, .wav, .m4a, .ogg) Gemini AI மூலம் உரையாக மாற்ற"):
             col_mic, col_up = st.columns(2)
             with col_mic:
                 recorded_audio = st.audio_input("ஒலிவாங்கி வழி பதிவு செய்க")
             with col_up:
                 uploaded_audio = st.file_uploader(
                     "அல்லது ஒலிக்கோப்பைப் பதிவேற்றவும்",
-                    type=["wav", "mp3", "m4a", "ogg"],
+                    type=["webm", "wav", "mp3", "m4a", "ogg", "opus", "aac", "flac"],
                     key="stt_file_upload",
                 )
 
@@ -645,8 +645,9 @@ with tab_typing:
                 try:
                     with st.spinner("ஒலிப்பதிவை Gemini AI தமிழ் எழுத்துகளாக மாற்றுகிறது..."):
                         mime = getattr(active_audio, "type", None) or "audio/wav"
+                        fname = getattr(active_audio, "name", "") or ""
                         st.session_state["stt_result"] = transcribe_tamil_audio(
-                            active_audio.getvalue(), mime_type=mime
+                            active_audio.getvalue(), mime_type=mime, filename=fname
                         )
                     st.success("ஒலிப்பதிவு வெற்றிகரமாக உரையாக மாற்றப்பட்டது.")
                 except Exception as exc:
