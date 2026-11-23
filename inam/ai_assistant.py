@@ -95,7 +95,6 @@ def _call_gemini(contents, fast_mode: bool = True, preferred_models=None):
                 except Exception as exc:
                     last_error = exc
                     err_str = str(exc)
-                    # 429 (தினசரி வரம்பு முடிவு) அல்லது 404 எனில் அதே மாதிரியை மீண்டும் முயலாமல் அடுத்த மாதிரிக்குச் செல்லவும்
                     if "429" in err_str or "RESOURCE_EXHAUSTED" in err_str or "404" in err_str:
                         break
                     continue
@@ -122,10 +121,9 @@ def _offline_format_voice_document(
     cleaned, _ = check_sandhi(cleaned)
     formal_body, _ = convert_to_official_style(cleaned)
 
-    # தானியங்கி வகை கண்டறிதல்
     resolved_style = doc_style
     if "தானியங்கி" in doc_style:
-        if any(k in formal_body for k in ("செய்தியாளர்", "விழா", "நிகழ்வு", "பத்திரிகை", "பொதுமக்கள்", "அழைப்பு")):
+        if any(k in formal_body for k in ("விருது", "செய்தியாளர்", "விழா", "நிகழ்வு", "பத்திரிகை", "பொதுமக்கள்", "அழைப்பு")):
             resolved_style = "பரப்புரை / செய்தி அறிக்கை"
         elif any(k in formal_body for k in ("அரசாணை", "அரசு", "ஆணை", "மாவட்ட ஆட்சியர்", "துறைச் செயலாளர்")):
             resolved_style = "அரசு அறிக்கை / ஆணை"
@@ -138,7 +136,10 @@ def _offline_format_voice_document(
 
     today_str = place_date.strip() if place_date.strip() else datetime.now().strftime("%d.%m.%Y")
     org_header = office_name.strip() if office_name.strip() else "[அலுவலகம் / நிறுவனத்தின் பெயர்]"
-    first_line = formal_body.splitlines()[0][:65].rstrip(".,")
+
+    first_sentence = re.split(r"[.\n]", formal_body.strip())[0].strip()
+    if len(first_sentence) > 95:
+        first_sentence = first_sentence[:92].rsplit(" ", 1)[0] + "..."
 
     if "பரப்புரை" in resolved_style or "செய்தி" in resolved_style:
         return (
@@ -146,8 +147,8 @@ def _offline_format_voice_document(
             f"செய்தி / பரப்புரை அறிக்கை\n"
             f"இடம் & நாள்: {today_str}\n"
             f"{'-' * 55}\n\n"
-            f"தலைப்பு: {first_line}\n\n"
-            f"{formal_body}\n\n"
+            f"தலைப்பு: {first_sentence}\n\n"
+            f"    {formal_body}\n\n"
             f"வெளியீடு:\n"
             f"மக்கள் தொடர்பு / ஒருங்கிணைப்பாளர்\n"
             f"{org_header}"
@@ -160,10 +161,10 @@ def _offline_format_voice_document(
             f"அரசு அறிக்கை / செயல்முறை ஆணை\n"
             f"ந.க.எண்: [எண் நிரப்பப்பட வேண்டும்]                நாள்: {today_str}\n"
             f"{'-' * 55}\n"
-            f"பொருள்: {first_line} – தொடர்பாக.\n\n"
+            f"பொருள்: {first_sentence} – தொடர்பாக.\n\n"
             f"ஆணை:\n"
             f"    {formal_body}\n\n"
-            f"                              அலுவலகத் தலைவர் / செயலாளர்\n"
+            f"                              அலுவலகத் தலைவர் / இயக்குநர்\n"
             f"                              {org_header}"
         )
 
@@ -173,7 +174,7 @@ def _offline_format_voice_document(
             f"கூட்டறிக்கை (Minutes of Meeting)\n"
             f"இடம் & நாள்: {today_str}\n"
             f"{'-' * 55}\n"
-            f"பொருள்: {first_line}\n\n"
+            f"பொருள்: {first_sentence}\n\n"
             f"கூட்டத்தில் விவாதிக்கப்பட்டு எடுக்கப்பட்ட முடிவுகள்:\n"
             f"1. {formal_body}\n\n"
             f"ஒருங்கிணைப்பாளர்                                  தலைவர்"
@@ -187,23 +188,22 @@ def _offline_format_voice_document(
             f"    [பெறுநர் பதவி மற்றும் முகவரி]\n\n"
             f"ந.க.எண்: [எண்]                                  நாள்: {today_str}\n\n"
             f"ஐயா / அம்மையீர்,\n"
-            f"    பொருள்: {first_line} – சார்பு.\n\n"
+            f"    பொருள்: {first_sentence} – சார்பு.\n\n"
             f"    {formal_body}\n\n"
             f"                                        தங்கள் உண்மையுள்ள,\n"
             f"                                        [கையொப்பம் / பதவி]"
         )
 
-    # இயல்புநிலை: சுற்றறிக்கை (Circular)
     return (
         f"{org_header}\n"
         f"சுற்றறிக்கை\n"
         f"ந.க.எண்: [எண் நிரப்பப்பட வேண்டும்]                நாள்: {today_str}\n"
         f"{'-' * 55}\n"
-        f"பொருள்: {first_line} – தொடர்பாக.\n\n"
+        f"பொருள்: {first_sentence} – தொடர்பாக.\n\n"
         f"    {formal_body}\n\n"
         f"    அனைவரும் இதனைக் கவனத்தில் கொண்டு உரிய நடவடிக்கை மேற்கொள்ளுமாறு "
         f"கேட்டுக்கொள்ளப்படுகிறார்கள்.\n\n"
-        f"                                        முதல்வர் / அலுவலகத் தலைவர்\n"
+        f"                                        இயக்குநர் / அலுவலகத் தலைவர்\n"
         f"                                        {org_header}"
     )
 
@@ -213,8 +213,8 @@ def format_voice_to_document(
     doc_style: str = "தானியங்கி (செய்தியின் தன்மைக்கு ஏற்ப)",
     office_name: str = "",
     place_date: str = "",
-) -> tuple[str, bool]:
-    """(வடிவமைக்கப்பட்ட_ஆவணம், AI_பயன்படுத்தப்பட்டதா) எனத் திருப்பித் தரும்."""
+) -> str:
+    """நேரடியாகத் தூய அலுவல் ஆவண உரையை (str) திருப்பித் தரும்."""
     if not spoken_text.strip():
         raise ValueError("உரை காலியாக உள்ளது.")
 
@@ -237,14 +237,11 @@ def format_voice_to_document(
 {spoken_text}
 """
         try:
-            ai_doc = _call_gemini(prompt, fast_mode=True)
-            return ai_doc, True
+            return _call_gemini(prompt, fast_mode=True)
         except Exception:
             pass
 
-    # Gemini வரம்பு (429) முடிந்திருந்தால் உடனடியாக உள்ளூர் ஆவண வடிவமைப்பை வழங்குதல்
-    offline_doc = _offline_format_voice_document(spoken_text, doc_style, office_name, place_date)
-    return offline_doc, False
+    return _offline_format_voice_document(spoken_text, doc_style, office_name, place_date)
 
 
 def improve_with_ai(text: str) -> str:
