@@ -410,7 +410,7 @@ def _render_live_voice_typing_board():
 
 
 st.title("📝 இனம் – தமிழ் அலுவல் உதவி")
-st.caption("Inam – Tamil Official Assistant & Language Workbench · Version 3.5.0")
+st.caption("Inam – Tamil Official Assistant & Language Workbench · Version 3.5.1")
 st.info(
     "மாதிரி அரசு/அலுவல் PDF, DOCX, TXT கோப்புகளைப் பதிவேற்றி அவற்றின் தன்மைக்கு ஏற்பப் புதிய ஆவணங்களை "
     "உருவாக்கும் நுட்பம், குரல் தட்டச்சுப் பலகை, குரல் செய்தி → Word (.docx) ஆவணம், குறியேற்ற மாற்றி, "
@@ -439,17 +439,181 @@ with st.sidebar:
         st.warning("Gemini API Key அமைக்கப்படவில்லை")
     st.caption("ரகசிய ஆவணங்கள் மற்றும் தனிப்பட்ட விவரங்களை வெளிப்புற AI-க்கு அனுப்ப வேண்டாம்.")
 
-tab_text, tab_typing, tab_lang_tools, tab_research, tab_docs, tab_guide = st.tabs([
+# முதலாவதாக 'அலுவல் ஆவணம்' தாவல் அமைக்கப்பட்டுள்ளது
+tab_docs, tab_text, tab_typing, tab_lang_tools, tab_research, tab_guide = st.tabs([
+    "அலுவல் ஆவணம்",
     "மொழித்திருத்தம்",
     "தட்டச்சு & குரல்",
     "சொல் & அகராதி",
     "ஆய்வு & எண் மாற்றி",
-    "அலுவல் ஆவணம்",
     "வழிகாட்டி",
 ])
 
 # =========================================================
-# தாவல் 1: மொழித்திருத்தம் (சொற்பிழை + சந்திப்பிழை + AI)
+# தாவல் 1 (முதல் தாவல்): அலுவல் ஆவணம்
+# =========================================================
+with tab_docs:
+    st.subheader("📂 மாதிரி அலுவல் கோப்பைப் பதிவேற்றி அதன் தன்மைக்கு ஏற்பப் புதிய ஆவணம் உருவாக்கல்")
+    st.write(
+        "அரசுச் சுற்றறிக்கை (Circular PDF), அரசாணை, குறிப்பாணை, அலுவல் கடிதம் போன்ற பல பக்க PDF, DOCX அல்லது TXT "
+        "கோப்புகளைப் பதிவேற்றுங்கள். அக்கோப்பின் கட்டமைப்பையும் (தலைப்பு, R.No., பொருள், பார்வை, விதிகள், அட்டவணை, "
+        "ஒப்பம், பெறுநர் பட்டியல், //ஆணைப்படி//) தன்மையையும் உள்வாங்கிப் புதிய ஆவணமாக வடிவமைத்துத் தரும்."
+    )
+
+    top_c1, top_c2, top_c3 = st.columns([1.2, 1, 1])
+    doc_options = ["தானியங்கி (பதிவேற்றிய கோப்பின் தன்மைக்கு ஏற்ப)"] + list(DOCUMENT_TYPES.keys())
+    kind = top_c1.selectbox("புதிய ஆவண வகை", doc_options)
+    output_language = top_c2.selectbox(
+        "வெளியீட்டு மொழி",
+        [
+            "தமிழ் (மாதிரி ஆங்கிலத்தில் இருந்தாலும் தமிழில் வடிவமைக்க)",
+            "மாதிரி கோப்பின் மொழியிலேயே (Same as Sample)",
+            "ஆங்கிலம் (English Official Style)",
+        ],
+    )
+    sample_file = top_c3.file_uploader(
+        "மாதிரி அலுவல் கோப்பு (PDF / DOCX / TXT)",
+        type=["pdf", "docx", "txt"],
+        key="official_template_upload",
+    )
+
+    if sample_file is not None:
+        st.success(f"மாதிரி கோப்பு இணைக்கப்பட்டது: **{sample_file.name}** ({round(sample_file.size / 1024, 1)} KB)")
+
+    st.markdown("#### 1. ஆவணத் தலைப்பு விவரங்கள்")
+    h1, h2 = st.columns(2)
+    office = h1.text_input("அலுவலகம் / துறை (எ.கா: தமிழ்நாடு அரசு – போக்குவரத்துத் துறை)")
+    reference = h2.text_input("ந.க.எண் / சுற்றறிக்கை எண் (R.No. / Circular No.)")
+    date = h1.text_input("நாள் (Dated)", placeholder="எ.கா: 23.11.2026")
+    place = h2.text_input("இடம் (Place)", placeholder="எ.கா: சென்னை-5 / கோயம்புத்தூர்")
+    subject = st.text_input("பொருள் (Sub)", placeholder="ஆவணத்தின் மையப் பொருளை உள்ளிடவும்...")
+    ref_docs = st.text_area(
+        "பார்வை (Ref – கடித எண்கள் / அரசாணைகள் இருப்பின்)",
+        height=75,
+        placeholder="1. அரசு கடித எண்..., நாள்...\n2. விண்ணப்பம் நாள்...",
+    )
+
+    st.markdown("#### 2. உள்ளே தரவேண்டிய குறிப்புகள் & விதிகள் (Inside Notes / Clauses)")
+    body = st.text_area(
+        "உள்ளே இடம்பெற வேண்டிய முக்கியக் குறிப்புகள், விதிமுறைகள், நிபந்தனைகள் (வரிக்கு ஒன்றாக உள்ளிடவும்)",
+        height=180,
+        placeholder="புதிய ஆவணத்தின் உள்ளே இடம்பெற வேண்டிய செய்திகள், விதிகள், சான்றிதழ் எண்கள், நிபந்தனைகளை விரிவாகத் தரவும்...",
+    )
+
+    with st.expander("அட்டவணை விவரங்கள் / கூடுதல் உட்பிரிவுகள் (தேவைப்படின்)"):
+        table_details = st.text_area(
+            "அட்டவணை அல்லது கூடுதல் விவரங்கள்",
+            height=110,
+            placeholder="எ.கா: வ.எண் | சான்றிதழ் எண் | செல்லுபடியாகும் காலம்...",
+        )
+
+    st.markdown("#### 3. பெறுநர் பட்டியல் & கையொப்பம்")
+    f1, f2 = st.columns(2)
+    recipient = f1.text_area(
+        "பெறுநர் பட்டியல் (To)",
+        height=100,
+        placeholder="1. அனைத்து மண்டல போக்குவரத்து அலுவலர்கள்...\n2. சார்ந்த நிறுவனங்கள்...",
+    )
+    signatory = f2.text_area(
+        "கையொப்பமிடுபவர் / பதவி & ஆணைப்படி (Signatory & By Order)",
+        height=100,
+        placeholder="இணைப் போக்குவரத்து ஆணையர் (சாலைப் பாதுகாப்பு)\n//ஆணைப்படி// கண்காணிப்பாளர்",
+    )
+
+    if st.button(
+        "✨ பதிவேற்றிய கோப்பின் தன்மைக்கு ஏற்ப ஆவணம் உருவாக்கு",
+        type="primary",
+        disabled=(sample_file is None and not body.strip()),
+    ):
+        st.session_state.pop("doc", None)
+        details = {
+            "ஆவண வகை": kind,
+            "வெளியீட்டு மொழி": output_language,
+            "அலுவலகம் / துறை": office,
+            "ந.க.எண் / Circular No.": reference,
+            "நாள்": date,
+            "இடம்": place,
+            "பொருள் (Sub)": subject,
+            "பார்வை (Ref)": ref_docs,
+            "உள்ளே தரவேண்டிய குறிப்புகள் / விதிகள்": body,
+            "அட்டவணை / கூடுதல் விவரங்கள்": table_details,
+            "பெறுநர் பட்டியல் (To)": recipient,
+            "கையொப்பமிடுபவர் / பதவி": signatory,
+        }
+        try:
+            with st.spinner("மாதிரி கோப்பின் கட்டமைப்பைப் பகுப்பாய்ந்து புதிய ஆவணத்தை உருவாக்குகிறது..."):
+                if sample_file is not None:
+                    st.session_state["doc"] = generate_document_from_template(
+                        sample_bytes=sample_file.getvalue(),
+                        filename=sample_file.name,
+                        doc_type=kind,
+                        details=details,
+                    )
+                else:
+                    from inam.ai_assistant import _offline_template_fallback
+                    st.session_state["doc"] = _offline_template_fallback("", kind, details)
+            st.session_state["doc_run_id"] += 1
+            st.success("மாதிரி கோப்பின் தன்மைக்கு ஏற்பப் புதிய அலுவல் ஆவணம் உருவாக்கப்பட்டது!")
+        except Exception as exc:
+            st.error(f"ஆவணத்தை உருவாக்க முடியவில்லை: {exc}")
+
+    if "doc" in st.session_state:
+        drid = st.session_state["doc_run_id"]
+        st.divider()
+        st.subheader("உருவாக்கப்பட்ட அலுவல் ஆவணம் (சரிபார்த்துத் திருத்தலாம்)")
+        document_edit = st.text_area(
+            "ஆவண வரைவு",
+            value=st.session_state["doc"],
+            height=360,
+            key=f"doc_edit_{drid}",
+        )
+        d_col1, d_col2, d_col3 = st.columns(3)
+        d_col1.download_button(
+            "📥 சொல்லாய்வி ஆவணம் – Word (.docx)",
+            make_docx(document_edit),
+            "inam-official-document.docx",
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            type="primary",
+            use_container_width=True,
+        )
+        d_col2.download_button(
+            "📄 உரைக் கோப்பு – TXT",
+            make_txt(document_edit),
+            "inam-official-document.txt",
+            "text/plain; charset=utf-8",
+            use_container_width=True,
+        )
+        d_col3.download_button(
+            "🌐 அச்சு வடிவம் – HTML (PDF)",
+            make_html(document_edit),
+            "inam-official-document.html",
+            "text/html; charset=utf-8",
+            use_container_width=True,
+        )
+
+    st.divider()
+    with st.expander("மாதிரி கோப்பு இல்லாமல் எளிய அடிப்படை ஆவணம் உருவாக்க"):
+        basic_kind = st.selectbox("அடிப்படை ஆவண வகை", list(DOCUMENT_TYPES.keys()), key="basic_kind")
+        b1, b2 = st.columns(2)
+        basic_office = b1.text_input("அலுவலகம்", key="basic_office")
+        basic_recipient = b1.text_input("பெறுநர்", key="basic_recipient")
+        basic_date = b1.text_input("நாள்", key="basic_date")
+        basic_ref = b2.text_input("ந.க.எண்", key="basic_ref")
+        basic_subject = b2.text_input("பொருள்", key="basic_subject")
+        basic_place = b2.text_input("இடம்", key="basic_place")
+        basic_body = st.text_area("உள்ளடக்கம்", key="basic_body")
+        basic_sign = st.text_input("கையொப்பமிடுபவர் / பதவி", key="basic_sign")
+        if st.button("அடிப்படை ஆவண வரைவை உருவாக்கு"):
+            st.session_state.pop("doc", None)
+            st.session_state["doc"] = build_document(
+                basic_kind, basic_office, basic_recipient, basic_date,
+                basic_ref, basic_subject, basic_body, basic_place, basic_sign,
+            )
+            st.session_state["doc_run_id"] += 1
+            st.rerun()
+
+# =========================================================
+# தாவல் 2: மொழித்திருத்தம் (சொற்பிழை + சந்திப்பிழை + AI)
 # =========================================================
 with tab_text:
     st.subheader("தமிழ் உரையைத் திருத்துதல் (சொற்பிழை & சந்திப்பிழை)")
@@ -615,7 +779,7 @@ with tab_text:
                 st.caption("• " + note)
 
 # =========================================================
-# தாவல் 2: குரல்வழித் தட்டச்சு, குரல் -> Word ஆவணம், விசைப்பலகை, எழுத்துரு
+# தாவல் 3: குரல்வழித் தட்டச்சு, குரல் -> Word ஆவணம், விசைப்பலகை, எழுத்துரு
 # =========================================================
 with tab_typing:
     t_sub_stt, t_sub1, t_sub2, t_sub3 = st.tabs([
@@ -824,7 +988,7 @@ with tab_typing:
         st.caption("அரசு மற்றும் கல்வி நிறுவன அலுவல் ஆவணங்களுக்குத் தமிழ்நாடு அரசின் 'Marutham' அல்லது 'Noto Sans Tamil' ஒருங்குறி எழுத்துருக்களைப் பயன்படுத்துவது சிறந்தது.")
 
 # =========================================================
-# தாவல் 3: தமிழ்ச்சொல் சுட்டி, அகராதி, அகரவரிசைப்படுத்தல்
+# தாவல் 4: தமிழ்ச்சொல் சுட்டி, அகராதி, அகரவரிசைப்படுத்தல்
 # =========================================================
 with tab_lang_tools:
     col_l1, col_l2 = st.columns(2)
@@ -877,7 +1041,7 @@ with tab_lang_tools:
                 st.warning("வரிசைப்படுத்த வேண்டிய வரிகளை உள்ளிடவும்.")
 
 # =========================================================
-# தாவல் 4: சொல்லடைவு, துணைநூற்பட்டியல், எண் <-> எழுத்து மாற்றி
+# தாவல் 5: சொல்லடைவு, துணைநூற்பட்டியல், எண் <-> எழுத்து மாற்றி
 # =========================================================
 with tab_research:
     r_sub1, r_sub2, r_sub3 = st.tabs([
@@ -950,176 +1114,13 @@ with tab_research:
                 st.info(f"**எண் வடிவில்:** {parsed_num:,}")
 
 # =========================================================
-# தாவல் 5: அலுவல் ஆவணம் (மாதிரி கோப்பு பதிவேற்றம் & உள்ளே தரவேண்டிய குறிப்புகள்)
-# =========================================================
-with tab_docs:
-    st.subheader("📂 மாதிரி அலுவல் கோப்பைப் பதிவேற்றி அதன் தன்மைக்கு ஏற்பப் புதிய ஆவணம் உருவாக்கல்")
-    st.write(
-        "அரசுச் சுற்றறிக்கை (Circular PDF), அரசாணை, குறிப்பாணை, அலுவல் கடிதம் போன்ற பல பக்க PDF, DOCX அல்லது TXT "
-        "கோப்புகளைப் பதிவேற்றுங்கள். அக்கோப்பின் கட்டமைப்பையும் (தலைப்பு, R.No., பொருள், பார்வை, விதிகள், அட்டவணை, "
-        "ஒப்பம், பெறுநர் பட்டியல், //ஆணைப்படி//) தன்மையையும் உள்வாங்கிப் புதிய ஆவணமாக வடிவமைத்துத் தரும்."
-    )
-
-    top_c1, top_c2, top_c3 = st.columns([1.2, 1, 1])
-    doc_options = ["தானியங்கி (பதிவேற்றிய கோப்பின் தன்மைக்கு ஏற்ப)"] + list(DOCUMENT_TYPES.keys())
-    kind = top_c1.selectbox("புதிய ஆவண வகை", doc_options)
-    output_language = top_c2.selectbox(
-        "வெளியீட்டு மொழி",
-        [
-            "தமிழ் (மாதிரி ஆங்கிலத்தில் இருந்தாலும் தமிழில் வடிவமைக்க)",
-            "மாதிரி கோப்பின் மொழியிலேயே (Same as Sample)",
-            "ஆங்கிலம் (English Official Style)",
-        ],
-    )
-    sample_file = top_c3.file_uploader(
-        "மாதிரி அலுவல் கோப்பு (PDF / DOCX / TXT)",
-        type=["pdf", "docx", "txt"],
-        key="official_template_upload",
-    )
-
-    if sample_file is not None:
-        st.success(f"மாதிரி கோப்பு இணைக்கப்பட்டது: **{sample_file.name}** ({round(sample_file.size / 1024, 1)} KB)")
-
-    st.markdown("#### 1. ஆவணத் தலைப்பு விவரங்கள்")
-    h1, h2 = st.columns(2)
-    office = h1.text_input("அலுவலகம் / துறை (எ.கா: தமிழ்நாடு அரசு – போக்குவரத்துத் துறை)")
-    reference = h2.text_input("ந.க.எண் / சுற்றறிக்கை எண் (R.No. / Circular No.)")
-    date = h1.text_input("நாள் (Dated)", placeholder="எ.கா: 23.11.2026")
-    place = h2.text_input("இடம் (Place)", placeholder="எ.கா: சென்னை-5 / கோயம்புத்தூர்")
-    subject = st.text_input("பொருள் (Sub)", placeholder="ஆவணத்தின் மையப் பொருளை உள்ளிடவும்...")
-    ref_docs = st.text_area(
-        "பார்வை (Ref – கடித எண்கள் / அரசாணைகள் இருப்பின்)",
-        height=75,
-        placeholder="1. அரசு கடித எண்..., நாள்...\n2. விண்ணப்பம் நாள்...",
-    )
-
-    st.markdown("#### 2. உள்ளே தரவேண்டிய குறிப்புகள் & விதிகள் (Inside Notes / Clauses)")
-    body = st.text_area(
-        "உள்ளே இடம்பெற வேண்டிய முக்கியக் குறிப்புகள், விதிமுறைகள், நிபந்தனைகள் (வரிக்கு ஒன்றாக உள்ளிடவும்)",
-        height=180,
-        placeholder="புதிய ஆவணத்தின் உள்ளே இடம்பெற வேண்டிய செய்திகள், விதிகள், சான்றிதழ் எண்கள், நிபந்தனைகளை விரிவாகத் தரவும்...",
-    )
-
-    with st.expander("அட்டவணை விவரங்கள் / கூடுதல் உட்பிரிவுகள் (தேவைப்படின்)"):
-        table_details = st.text_area(
-            "அட்டவணை அல்லது கூடுதல் விவரங்கள்",
-            height=110,
-            placeholder="எ.கா: வ.எண் | சான்றிதழ் எண் | செல்லுபடியாகும் காலம்...",
-        )
-
-    st.markdown("#### 3. பெறுநர் பட்டியல் & கையொப்பம்")
-    f1, f2 = st.columns(2)
-    recipient = f1.text_area(
-        "பெறுநர் பட்டியல் (To)",
-        height=100,
-        placeholder="1. அனைத்து மண்டல போக்குவரத்து அலுவலர்கள்...\n2. சார்ந்த நிறுவனங்கள்...",
-    )
-    signatory = f2.text_area(
-        "கையொப்பமிடுபவர் / பதவி & ஆணைப்படி (Signatory & By Order)",
-        height=100,
-        placeholder="இணைப் போக்குவரத்து ஆணையர் (சாலைப் பாதுகாப்பு)\n//ஆணைப்படி// கண்காணிப்பாளர்",
-    )
-
-    if st.button(
-        "✨ பதிவேற்றிய கோப்பின் தன்மைக்கு ஏற்ப ஆவணம் உருவாக்கு",
-        type="primary",
-        disabled=(sample_file is None and not body.strip()),
-    ):
-        st.session_state.pop("doc", None)
-        details = {
-            "ஆவண வகை": kind,
-            "வெளியீட்டு மொழி": output_language,
-            "அலுவலகம் / துறை": office,
-            "ந.க.எண் / Circular No.": reference,
-            "நாள்": date,
-            "இடம்": place,
-            "பொருள் (Sub)": subject,
-            "பார்வை (Ref)": ref_docs,
-            "உள்ளே தரவேண்டிய குறிப்புகள் / விதிகள்": body,
-            "அட்டவணை / கூடுதல் விவரங்கள்": table_details,
-            "பெறுநர் பட்டியல் (To)": recipient,
-            "கையொப்பமிடுபவர் / பதவி": signatory,
-        }
-        try:
-            with st.spinner("மாதிரி கோப்பின் கட்டமைப்பைப் பகுப்பாய்ந்து புதிய ஆவணத்தை உருவாக்குகிறது..."):
-                if sample_file is not None:
-                    st.session_state["doc"] = generate_document_from_template(
-                        sample_bytes=sample_file.getvalue(),
-                        filename=sample_file.name,
-                        doc_type=kind,
-                        details=details,
-                    )
-                else:
-                    from inam.ai_assistant import _offline_template_fallback
-                    st.session_state["doc"] = _offline_template_fallback("", kind, details)
-            st.session_state["doc_run_id"] += 1
-            st.success("மாதிரி கோப்பின் தன்மைக்கு ஏற்பப் புதிய அலுவல் ஆவணம் உருவாக்கப்பட்டது!")
-        except Exception as exc:
-            st.error(f"ஆவணத்தை உருவாக்க முடியவில்லை: {exc}")
-
-    if "doc" in st.session_state:
-        drid = st.session_state["doc_run_id"]
-        st.divider()
-        st.subheader("உருவாக்கப்பட்ட அலுவல் ஆவணம் (சரிபார்த்துத் திருத்தலாம்)")
-        document_edit = st.text_area(
-            "ஆவண வரைவு",
-            value=st.session_state["doc"],
-            height=360,
-            key=f"doc_edit_{drid}",
-        )
-        d_col1, d_col2, d_col3 = st.columns(3)
-        d_col1.download_button(
-            "📥 சொல்லாய்வி ஆவணம் – Word (.docx)",
-            make_docx(document_edit),
-            "inam-official-document.docx",
-            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-            type="primary",
-            use_container_width=True,
-        )
-        d_col2.download_button(
-            "📄 உரைக் கோப்பு – TXT",
-            make_txt(document_edit),
-            "inam-official-document.txt",
-            "text/plain; charset=utf-8",
-            use_container_width=True,
-        )
-        d_col3.download_button(
-            "🌐 அச்சு வடிவம் – HTML (PDF)",
-            make_html(document_edit),
-            "inam-official-document.html",
-            "text/html; charset=utf-8",
-            use_container_width=True,
-        )
-
-    st.divider()
-    with st.expander("மாதிரி கோப்பு இல்லாமல் எளிய அடிப்படை ஆவணம் உருவாக்க"):
-        basic_kind = st.selectbox("அடிப்படை ஆவண வகை", list(DOCUMENT_TYPES.keys()), key="basic_kind")
-        b1, b2 = st.columns(2)
-        basic_office = b1.text_input("அலுவலகம்", key="basic_office")
-        basic_recipient = b1.text_input("பெறுநர்", key="basic_recipient")
-        basic_date = b1.text_input("நாள்", key="basic_date")
-        basic_ref = b2.text_input("ந.க.எண்", key="basic_ref")
-        basic_subject = b2.text_input("பொருள்", key="basic_subject")
-        basic_place = b2.text_input("இடம்", key="basic_place")
-        basic_body = st.text_area("உள்ளடக்கம்", key="basic_body")
-        basic_sign = st.text_input("கையொப்பமிடுபவர் / பதவி", key="basic_sign")
-        if st.button("அடிப்படை ஆவண வரைவை உருவாக்கு"):
-            st.session_state.pop("doc", None)
-            st.session_state["doc"] = build_document(
-                basic_kind, basic_office, basic_recipient, basic_date,
-                basic_ref, basic_subject, basic_body, basic_place, basic_sign,
-            )
-            st.session_state["doc_run_id"] += 1
-            st.rerun()
-
-# =========================================================
 # தாவல் 6: வழிகாட்டி
 # =========================================================
 with tab_guide:
     st.subheader("பயன்பாட்டு வழிகாட்டி – இனம் 3.5")
     st.markdown("""
 - **அலுவல் ஆவணம் (மாதிரி கோப்பு வடிவமைப்பு):** அரசுச் சுற்றறிக்கை (PDF), அரசாணை, குறிப்பாணை போன்ற பல பக்க கோப்புகளைப் பதிவேற்றி, உள்ளே தரவேண்டிய குறிப்புகளையும் பார்வை/பெறுநர் விவரங்களையும் உள்ளிட்டுத் தமிழிலோ ஆங்கிலத்திலோ புதிய **Word (.docx)** ஆவணமாகப் பெறலாம்.
-- **தட்டச்சு & குரல்:** பேசும்போதே உடனுக்குடன் ஒருங்குறியில் தட்டச்சாகும் **குரல் தட்டச்சுப் பலகை**, குரல் செய்தியைச் சுற்றறிக்கை / பரப்புரை அறிக்கை / அரசு அறிக்கை வடிவங்களில் **Word (.docx)** ஆவணமாக உருவாக்கும் வசதி, `.webm`/`.mp3`/`.wav` ஒலிக்கோப்பு மாற்றம் ஆகியவற்றைப் பயன்படுத்தலாம்.
 - **மொழித்திருத்தம்:** சொற்பிழை, மயங்கொலிப் பிழை, வல்லினம் மிகும் சந்திப்பிழை ஆகியவற்றை API இல்லாமலேயே உடனடியாகத் திருத்தலாம்.
+- **தட்டச்சு & குரல்:** பேசும்போதே உடனுக்குடன் ஒருங்குறியில் தட்டச்சாகும் **குரல் தட்டச்சுப் பலகை**, குரல் செய்தியைச் சுற்றறிக்கை / பரப்புரை அறிக்கை / அரசு அறிக்கை வடிவங்களில் **Word (.docx)** ஆவணமாக உருவாக்கும் வசதி, `.webm`/`.mp3`/`.wav` ஒலிக்கோப்பு மாற்றம் ஆகியவற்றைப் பயன்படுத்தலாம்.
 - **சொல், அகராதி & ஆய்வுக் கருவிகள்:** தமிழ்ச்சொல் சுட்டி, தமிழ்-ஆங்கில அலுவல் அகராதி, அகர வரிசைப்படுத்தம், சொல்லடைவு (Indexing), துணைநூற்பட்டியல் (Bibliography), எண் ↔ தமிழ் எழுத்து மாற்றி ஆகியவை இடம்பெற்றுள்ளன.
 """)
