@@ -133,8 +133,10 @@ def improve_with_ai_detailed(text: str, rule_findings: list) -> tuple[str, list]
         return raw.strip(), []
 
 
-def transcribe_tamil_audio(audio_bytes: bytes, mime_type: str = "audio/wav") -> str:
-    """தமிழ் ஒலிப்பதிவை Gemini AI மூலம் துல்லியமான தமிழ் ஒருங்குறி உரையாக மாற்றும்."""
+def transcribe_tamil_audio(
+    audio_bytes: bytes, mime_type: str = "audio/wav", filename: str = ""
+) -> str:
+    """தமிழ் ஒலிப்பதிவை (.wav, .mp3, .webm, .m4a, .ogg) Gemini AI மூலம் தமிழ் ஒருங்குறி உரையாக மாற்றும்."""
     if not audio_bytes:
         raise ValueError("ஒலிப்பதிவுத் தரவு காலியாக உள்ளது.")
 
@@ -145,17 +147,45 @@ def transcribe_tamil_audio(audio_bytes: bytes, mime_type: str = "audio/wav") -> 
             "google-genai தொகுப்பு நிறுவப்படவில்லை. pip install -U google-genai என இயக்கவும்."
         ) from exc
 
+    ext_mime_map = {
+        ".webm": "audio/webm",
+        ".wav": "audio/wav",
+        ".mp3": "audio/mp3",
+        ".m4a": "audio/mp4",
+        ".mp4": "audio/mp4",
+        ".ogg": "audio/ogg",
+        ".opus": "audio/ogg",
+        ".aac": "audio/aac",
+        ".flac": "audio/flac",
+    }
+
+    clean_mime = ""
+    fname_lower = (filename or "").lower()
+    for ext, mapped_mime in ext_mime_map.items():
+        if fname_lower.endswith(ext):
+            clean_mime = mapped_mime
+            break
+
+    if not clean_mime:
+        if mime_type and (mime_type.startswith("audio/") or mime_type == "video/webm"):
+            clean_mime = "audio/webm" if mime_type == "video/webm" else mime_type
+        else:
+            clean_mime = "audio/wav"
+
     audio_part = types.Part.from_bytes(
         data=audio_bytes,
-        mime_type=mime_type or "audio/wav",
+        mime_type=clean_mime,
     )
     prompt = (
         "இந்த ஒலிப்பதிவில் பேசப்பட்டுள்ள தமிழ் உரையைத் துல்லியமாகவும், "
         "எழுத்துப் பிழை மற்றும் மயங்கொலிப் பிழையின்றியும் தமிழ் ஒருங்குறி (Unicode) எழுத்துகளில் மட்டும் எழுதித் தரவும். "
         "கூடுதல் விளக்கங்களோ முன்னுரையோ வேண்டாம்; பேசப்பட்ட உரையை மட்டும் வழங்கவும்."
     )
-    return _call_gemini([prompt, audio_part], fast_mode=True)
-
+    return _call_gemini(
+        [prompt, audio_part],
+        fast_mode=False,
+        preferred_models=("gemini-3.8-flash", "gemini-2.5-flash"),
+    )
 
 def _document_prompt(doc_type: str, details: dict) -> str:
     return f"""
