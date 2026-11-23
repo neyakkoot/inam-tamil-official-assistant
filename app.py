@@ -179,7 +179,7 @@ def _render_live_voice_typing_board():
         }
         textarea {
             width: 100%;
-            min-height: 165px;
+            min-height: 15px;
             border: none;
             outline: none;
             resize: vertical;
@@ -406,7 +406,7 @@ def _render_live_voice_typing_board():
     </body>
     </html>
     """
-    components.html(html_code, height=365)
+    components.html(html_code, height=)
 
 
 st.title("📝 இனம் – தமிழ் அலுவல் உதவி")
