@@ -410,7 +410,7 @@ def _render_live_voice_typing_board():
 
 
 st.title("📝 இனம் – தமிழ் அலுவல் உதவி")
-st.caption("Inam – Tamil Official Assistant & Language Workbench · Version 3.4.1")
+st.caption("Inam – Tamil Official Assistant & Language Workbench · Version 3.4.2")
 st.info(
     "பேசும்போதே உடனுக்குடன் தட்டச்சாகும் குரல் தட்டச்சுப் பலகை, குரல் செய்தியைச் சுற்றறிக்கை / பரப்புரை அறிக்கை / "
     "அரசு அறிக்கை வடிவங்களில் சொல்லாய்வி (Word .docx) ஆவணமாகப் பதிவிறக்கும் வசதி, குறியேற்ற மாற்றி, "
@@ -655,13 +655,12 @@ with tab_typing:
                 "கூட்டறிக்கை (Minutes of Meeting)",
             ],
         )
-        voice_office = v_col2.text_input("அலுவலகம் / அமைப்பு (விருப்பம்)", placeholder="எ.கா: தமிழ்த்துறை / மாவட்ட ஆட்சியர் அலுவலகம்")
+        voice_office = v_col2.text_input("அலுவலகம் / அமைப்பு (விருப்பம்)", placeholder="எ.கா: தமிழ் வளர்ச்சித்துறை")
         voice_place_date = v_col3.text_input("இடம் & நாள் (விருப்பம்)", placeholder="எ.கா: கோயம்புத்தூர், 23.11.2026")
 
         if st.button(
             "✨ செய்திக்கு ஏற்ப வடிவமைத்து ஆவணம் உருவாக்கு",
             type="primary",
-            disabled=(not ai_is_configured()),
         ):
             if voice_raw_input.strip():
                 try:
