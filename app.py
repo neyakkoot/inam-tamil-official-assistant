@@ -9,6 +9,7 @@ from inam.ai_assistant import (
     get_ai_model,
     generate_document_from_template,
     transcribe_tamil_audio,
+    format_voice_to_document,
 )
 from inam.documents import DOCUMENT_TYPES, build_document
 from inam.exporters import make_docx, make_txt, make_html
@@ -51,6 +52,8 @@ if "bib_list" not in st.session_state:
     st.session_state["bib_list"] = []
 if "stt_result" not in st.session_state:
     st.session_state["stt_result"] = ""
+if "voice_formatted_doc" not in st.session_state:
+    st.session_state["voice_formatted_doc"] = ""
 
 
 def _clear_text_results():
@@ -176,7 +179,7 @@ def _render_live_voice_typing_board():
         }
         textarea {
             width: 100%;
-            min-height: 175px;
+            min-height: 165px;
             border: none;
             outline: none;
             resize: vertical;
@@ -252,7 +255,7 @@ def _render_live_voice_typing_board():
                 சொற்கள்: <span id="wordCount">0</span> &nbsp;|&nbsp; எழுத்துக்கள்: <span id="charCount">0</span>
             </div>
             <div class="actions">
-                <button class="action-btn" onclick="copyText()">📋 நகலெடு</button>
+                <button class="action-btn" onclick="copyText()">📋 நகலெடு (கீழே ஒட்ட)</button>
                 <button class="action-btn" onclick="downloadTxt()">⬇️ TXT பதிவிறக்கு</button>
                 <button class="action-btn danger" onclick="clearText()">🗑️ உரையை அழி</button>
             </div>
@@ -291,7 +294,7 @@ def _render_live_voice_typing_board():
 
         if (SpeechRecognition) {
             recognition = new SpeechRecognition();
-            recognition.lang = langSelect.value;
+            recognition.lang = "ta-IN";
             recognition.continuous = true;
             recognition.interimResults = true;
 
@@ -374,11 +377,11 @@ def _render_live_voice_typing_board():
         function copyText() {
             if (!voiceText.value) return;
             navigator.clipboard.writeText(voiceText.value).then(() => {
-                setStatus("📋 உரை நகலெடுக்கப்பட்டது!", "listening");
+                setStatus("📋 உரை நகலெடுக்கப்பட்டது! கீழே உள்ள பெட்டியில் ஒட்டவும்", "listening");
                 setTimeout(() => {
                     if (isListening) setStatus("● கேட்கிறது... பேசுங்கள்", "listening");
                     else setStatus("● தயார்", "");
-                }, 1800);
+                }, 2200);
             });
         }
 
@@ -403,15 +406,15 @@ def _render_live_voice_typing_board():
     </body>
     </html>
     """
-    components.html(html_code, height=375)
+    components.html(html_code, height=365)
 
 
 st.title("📝 இனம் – தமிழ் அலுவல் உதவி")
-st.caption("Inam – Tamil Official Assistant & Language Workbench · Version 3.3.0")
+st.caption("Inam – Tamil Official Assistant & Language Workbench · Version 3.4.0")
 st.info(
-    "பேசும்போதே உடனுக்குடன் தட்டச்சாகும் குரல் தட்டச்சுப் பலகை, .webm/.mp3/.wav ஒலிக்கோப்பு மாற்றம், "
-    "தமிழ்த் தட்டச்சு, குறியேற்ற மாற்றி (Bamini/TSCII/TAB/TAM), சொற்பிழை/சந்தித் திருத்தி, அகராதி, "
-    "அகரவரிசைப்படுத்தல், சொல்லடைவு, துணைநூற்பட்டியல், எண்-எழுத்து மாற்றி ஆகிய வசதிகள் ஒருங்கிணைக்கப்பட்டுள்ளன."
+    "பேசும்போதே உடனுக்குடன் தட்டச்சாகும் குரல் தட்டச்சுப் பலகை, குரல் செய்தியைச் சுற்றறிக்கை / பரப்புரை அறிக்கை / "
+    "அரசு அறிக்கை வடிவங்களில் சொல்லாய்வி (Word .docx) ஆவணமாகப் பதிவிறக்கும் வசதி, குறியேற்ற மாற்றி, "
+    "சொற்பிழை/சந்தித் திருத்தி, அகராதி, சொல்லடைவு, துணைநூற்பட்டியல், எண்-எழுத்து மாற்றி ஆகியவை ஒருங்கிணைக்கப்பட்டுள்ளன."
 )
 
 with st.sidebar:
@@ -611,11 +614,11 @@ with tab_text:
                 st.caption("• " + note)
 
 # =========================================================
-# தாவல் 2: குரல்வழித் தட்டச்சு, தமிழ்த் தட்டச்சு, எழுத்துரு, குறியேற்ற மாற்றி
+# தாவல் 2: குரல்வழித் தட்டச்சு, குரல் -> Word ஆவணம், விசைப்பலகை, எழுத்துரு
 # =========================================================
 with tab_typing:
     t_sub_stt, t_sub1, t_sub2, t_sub3 = st.tabs([
-        "🎙️ குரல் தட்டச்சுப் பலகை (Speech-to-Text)",
+        "🎙️ குரல் தட்டச்சு & ஆவண உருவாக்கம்",
         "⌨️ ஒலிப்பு & திரை விசைப்பலகை",
         "🔄 குறியேற்ற மாற்றி (Encoding)",
         "🔤 ஒருங்குறி எழுத்துருக்கள்",
@@ -623,6 +626,88 @@ with tab_typing:
 
     with t_sub_stt:
         _render_live_voice_typing_board()
+
+        st.divider()
+        st.subheader("📄 குரல் செய்தியை ஆவணமாக வடிவமைத்து சொல்லாய்வி (Word .docx) பதிவிறக்கம்")
+        st.caption(
+            "மேலே குரல் வழியாகத் தட்டச்சு செய்த உரையை '📋 நகலெடு' அழுத்தி இங்கு ஒட்டவும்; "
+            "செய்தியின் தன்மைக்கு ஏற்பச் சுற்றறிக்கை, பரப்புரை அறிக்கை அல்லது அரசு அறிக்கை வடிவில் Word (.docx) கோப்பாகப் பெறலாம்."
+        )
+
+        voice_raw_input = st.text_area(
+            "குரல் வழித் தட்டச்சு செய்த செய்தி / குறிப்புகள்",
+            value=st.session_state["stt_result"],
+            height=140,
+            placeholder="மேலே பேசித் தட்டச்சு செய்த உரையை இங்கு ஒட்டவும் (Ctrl+V)...",
+            key="voice_doc_source",
+        )
+
+        v_col1, v_col2, v_col3 = st.columns([1.2, 1, 1])
+        voice_doc_style = v_col1.selectbox(
+            "ஆவண வடிவம்",
+            [
+                "தானியங்கி (செய்தியின் தன்மைக்கு ஏற்ப)",
+                "சுற்றறிக்கை (Circular)",
+                "பரப்புரை / செய்தி அறிக்கை (Press / Publicity Report)",
+                "அரசு அறிக்கை / அரசாணை (Government Report / Order)",
+                "அலுவல் கடிதம் (Official Letter)",
+                "குறிப்பாணை (Memorandum)",
+                "கூட்டறிக்கை (Minutes of Meeting)",
+            ],
+        )
+        voice_office = v_col2.text_input("அலுவலகம் / அமைப்பு (விருப்பம்)", placeholder="எ.கா: தமிழ்த்துறை / மாவட்ட ஆட்சியர் அலுவலகம்")
+        voice_place_date = v_col3.text_input("இடம் & நாள் (விருப்பம்)", placeholder="எ.கா: கோயம்புத்தூர், 23.11.2026")
+
+        if st.button(
+            "✨ செய்திக்கு ஏற்ப வடிவமைத்து ஆவணம் உருவாக்கு",
+            type="primary",
+            disabled=(not ai_is_configured()),
+        ):
+            if voice_raw_input.strip():
+                try:
+                    with st.spinner("குரல் செய்தியைப் பகுப்பாய்ந்து அலுவல் ஆவணமாக வடிவமைக்கிறது..."):
+                        st.session_state["voice_formatted_doc"] = format_voice_to_document(
+                            spoken_text=voice_raw_input,
+                            doc_style=voice_doc_style,
+                            office_name=voice_office,
+                            place_date=voice_place_date,
+                        )
+                    st.success("ஆவணம் வடிவமைக்கப்பட்டது! கீழே சரிபார்த்து Word (.docx) கோப்பாகப் பதிவிறக்கவும்.")
+                except Exception as exc:
+                    st.error(f"ஆவணத்தை வடிவமைக்க முடியவில்லை: {exc}")
+            else:
+                st.warning("முதலில் குரல் வழித் தட்டச்சு செய்த உரையைப் பெட்டியில் உள்ளிடவும்.")
+
+        if st.session_state["voice_formatted_doc"]:
+            formatted_voice_edit = st.text_area(
+                "வடிவமைக்கப்பட்ட ஆவண வரைவு (தேவைப்படின் திருத்தலாம்)",
+                value=st.session_state["voice_formatted_doc"],
+                height=300,
+                key="voice_formatted_editor",
+            )
+            dl1, dl2, dl3 = st.columns(3)
+            dl1.download_button(
+                "📥 சொல்லாய்வி ஆவணம் – Word (.docx)",
+                make_docx(formatted_voice_edit),
+                "inam-voice-official-document.docx",
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                type="primary",
+                use_container_width=True,
+            )
+            dl2.download_button(
+                "📄 உரைக் கோப்பு – TXT",
+                make_txt(formatted_voice_edit),
+                "inam-voice-official-document.txt",
+                "text/plain; charset=utf-8",
+                use_container_width=True,
+            )
+            dl3.download_button(
+                "🌐 அச்சு வடிவம் – HTML",
+                make_html(formatted_voice_edit),
+                "inam-voice-official-document.html",
+                "text/html; charset=utf-8",
+                use_container_width=True,
+            )
 
         st.divider()
         with st.expander("பதிவுசெய்த ஒலிக்கோப்பை (.webm, .mp3, .wav, .m4a, .ogg) Gemini AI மூலம் உரையாக மாற்ற"):
@@ -639,7 +724,6 @@ with tab_typing:
             active_audio = recorded_audio or uploaded_audio
             if st.button(
                 "ஒலிக்கோப்பைத் தமிழ் உரையாக மாற்று",
-                type="primary",
                 disabled=(not ai_is_configured() or active_audio is None),
             ):
                 try:
@@ -649,28 +733,10 @@ with tab_typing:
                         st.session_state["stt_result"] = transcribe_tamil_audio(
                             active_audio.getvalue(), mime_type=mime, filename=fname
                         )
-                    st.success("ஒலிப்பதிவு வெற்றிகரமாக உரையாக மாற்றப்பட்டது.")
+                    st.success("ஒலிப்பதிவு உரையாக மாற்றப்பட்டு மேலே உள்ள ஆவண உருவாக்கிப் பெட்டியில் நிரப்பப்பட்டுள்ளது!")
+                    st.rerun()
                 except Exception as exc:
                     st.error(f"ஒலியை மாற்ற முடியவில்லை: {exc}")
-
-            if st.session_state["stt_result"]:
-                stt_edited = st.text_area(
-                    "மாற்றப்பட்ட தமிழ் உரை",
-                    value=st.session_state["stt_result"],
-                    height=140,
-                    key="stt_output_box",
-                )
-                b_send, b_dl = st.columns([1.2, 1])
-                if b_send.button("இந்த உரையை 'மொழித்திருத்தம்' தாவலுக்கு அனுப்பு", use_container_width=True):
-                    st.session_state["source_input"] = stt_edited
-                    st.success("உரை 'மொழித்திருத்தம்' தாவலில் நிரப்பப்பட்டுள்ளது!")
-                b_dl.download_button(
-                    "உரையைப் பதிவிறக்கு (TXT)",
-                    make_txt(stt_edited),
-                    "inam-speech-to-text.txt",
-                    "text/plain; charset=utf-8",
-                    use_container_width=True,
-                )
 
     with t_sub1:
         st.subheader("ஒலிப்புத் தட்டச்சுக் கருவி (Phonetic Transliteration)")
@@ -981,10 +1047,10 @@ with tab_docs:
 # தாவல் 6: வழிகாட்டி
 # =========================================================
 with tab_guide:
-    st.subheader("பயன்பாட்டு வழிகாட்டி – இனம் 3.3")
+    st.subheader("பயன்பாட்டு வழிகாட்டி – இனம் 3.4")
     st.markdown("""
 - **மொழித்திருத்தம்:** சொற்பிழை, மயங்கொலிப் பிழை, வல்லினம் மிகும் சந்திப்பிழை ஆகியவற்றை API இல்லாமலேயே உடனடியாகத் திருத்தலாம்.
-- **தட்டச்சு & குரல்:** பேசும்போதே உடனுக்குடன் ஒருங்குறியில் தட்டச்சாகும் **குரல் தட்டச்சுப் பலகை**, `.webm`/`.mp3`/`.wav`/`.m4a`/`.ogg` ஒலிக்கோப்பு மாற்றம், ஒலிப்புத் தட்டச்சு, திரை விசைப்பலகை, Bamini / TSCII / TAB / TAM ↔ Unicode குறியேற்ற மாற்றி ஆகியவற்றைப் பயன்படுத்தலாம்.
+- **தட்டச்சு & குரல்:** பேசும்போதே உடனுக்குடன் ஒருங்குறியில் தட்டச்சாகும் **குரல் தட்டச்சுப் பலகை**, குரல் செய்தியைச் சுற்றறிக்கை / பரப்புரை அறிக்கை / அரசு அறிக்கை வடிவங்களில் **Word (.docx)** ஆவணமாக உருவாக்கும் வசதி, `.webm`/`.mp3`/`.wav` ஒலிக்கோப்பு மாற்றம், ஒலிப்புத் தட்டச்சு, திரை விசைப்பலகை, Bamini / TSCII / TAB / TAM ↔ Unicode குறியேற்ற மாற்றி ஆகியவற்றைப் பயன்படுத்தலாம்.
 - **சொல் & அகராதி:** தமிழ்ச்சொல் சுட்டி, தமிழ்-ஆங்கில அலுவல் அகராதி, தமிழ் அகர வரிசைப்படுத்தம் ஆகியவை உள்ளடக்கப்பட்டுள்ளன.
 - **ஆய்வு & எண் மாற்றி:** ஆய்வுக் கட்டுரைகளுக்கான சொல்லடைவு (Indexing), துணைநூற்பட்டியல் (Bibliography), எண் ↔ தமிழ் எழுத்து மாற்றி ஆகியவை இடம்பெற்றுள்ளன.
 - **அலுவல் ஆவணம்:** மாதிரி DOCX/TXT/PDF கோப்புகளைப் பின்பற்றி Gemini AI மூலம் புதிய அலுவல் ஆவணங்களை உருவாக்கலாம்.
