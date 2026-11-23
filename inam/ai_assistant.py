@@ -1,8 +1,9 @@
 """
-Ultra-fast Gemini integration for Inam Tamil Official Assistant.
+Ultra-fast Gemini & Fallback Audio Transcription for Inam Tamil Official Assistant.
 """
 import os
 import re
+import time
 import json
 from io import BytesIO
 
@@ -22,12 +23,16 @@ def get_gemini_api_key() -> str:
     return _secret("GEMINI_API_KEY")
 
 
+def get_groq_api_key() -> str:
+    return _secret("GROQ_API_KEY")
+
+
 def get_ai_model() -> str:
     return _secret("GEMINI_MODEL", "gemini-3.8-flash-lite")
 
 
 def ai_is_configured() -> bool:
-    return bool(get_gemini_api_key())
+    return bool(get_gemini_api_key() or get_groq_api_key())
 
 
 def _new_client():
@@ -47,7 +52,7 @@ def _new_client():
     try:
         return genai.Client(
             api_key=key,
-            http_options=types.HttpOptions(timeout=25_000),
+            http_options=types.HttpOptions(timeout=20_000),
         )
     except Exception:
         return genai.Client(api_key=key)
@@ -65,7 +70,7 @@ def _fast_config():
 
 
 def _call_gemini(contents, fast_mode: bool = True, preferred_models: tuple = None):
-    """Zero-delay execution across fast Gemini 3.8 models."""
+    """Fast execution with targeted retry on 503 high-demand spikes."""
     primary_model = get_ai_model()
     default_chain = (
         primary_model,
@@ -74,17 +79,25 @@ def _call_gemini(contents, fast_mode: bool = True, preferred_models: tuple = Non
     )
     models_to_try = preferred_models if preferred_models else default_chain
 
-    candidate_models = []
+    unique_models = []
     for m in models_to_try:
-        if m and m not in candidate_models:
-            candidate_models.append(m)
+        if m and m not in unique_models:
+            unique_models.append(m)
+
+    # முதல் சுற்றில் உடனடியாகவும், 503 நெரிசல் வந்தால் சிறிய இடைவெளியுடனும் முயற்சித்தல்
+    schedule = [(m, 0.0) for m in unique_models] + [
+        (unique_models[0], 0.8),
+        (unique_models[-1], 1.5),
+    ]
 
     config = _fast_config() if fast_mode else None
     last_error = None
     client = _new_client()
 
     try:
-        for model_name in candidate_models:
+        for model_name, delay in schedule:
+            if delay > 0:
+                time.sleep(delay)
             try:
                 kwargs = {"model": model_name, "contents": contents}
                 if config is not None:
@@ -95,6 +108,10 @@ def _call_gemini(contents, fast_mode: bool = True, preferred_models: tuple = Non
                     return answer
             except Exception as exc:
                 last_error = exc
+                err_str = str(exc)
+                # 404 அல்லது 400 போன்ற நிரந்தரப் பிழை எனில் மீண்டும் அதே மாதிரியை முயற்சிக்கத் தேவையில்லை
+                if "404" in err_str or "NOT_FOUND" in err_str:
+                    continue
                 continue
     finally:
         try:
@@ -102,7 +119,49 @@ def _call_gemini(contents, fast_mode: bool = True, preferred_models: tuple = Non
         except Exception:
             pass
 
-    raise RuntimeError(f"AI சேவை தற்காலிகமாகப் பரபரப்பாக உள்ளது: {last_error}")
+    raise RuntimeError(f"Gemini வழங்கி தற்போது அதிக நெரிசலில் உள்ளது: {last_error}")
+
+
+def _transcribe_with_groq_fallback(audio_bytes: bytes, filename: str = "audio.webm") -> str:
+    """GROQ_API_KEY இருந்தால், Gemini 503 நெரிசலின் போது 1 வினாடியில் Whisper மூலம் மாற்றும்."""
+    groq_key = get_groq_api_key()
+    if not groq_key:
+        raise RuntimeError("GROQ_API_KEY அமைக்கப்படவில்லை.")
+
+    import urllib.request
+    import uuid
+
+    boundary = f"----WebKitFormBoundary{uuid.uuid4().hex}"
+    safe_name = filename if filename else "audio.webm"
+
+    body = bytearray()
+    # model field
+    body.extend(f"--{boundary}\r\n".encode())
+    body.extend(b'Content-Disposition: form-data; name="model"\r\n\r\nwhisper-large-v3\r\n')
+    # language field
+    body.extend(f"--{boundary}\r\n".encode())
+    body.extend(b'Content-Disposition: form-data; name="language"\r\n\r\nta\r\n')
+    # file field
+    body.extend(f"--{boundary}\r\n".encode())
+    body.extend(
+        f'Content-Disposition: form-data; name="file"; filename="{safe_name}"\r\n'
+        f"Content-Type: application/octet-stream\r\n\r\n".encode("utf-8")
+    )
+    body.extend(audio_bytes)
+    body.extend(f"\r\n--{boundary}--\r\n".encode())
+
+    req = urllib.request.Request(
+        "https://api.groq.com/openai/v1/audio/transcriptions",
+        data=bytes(body),
+        headers={
+            "Authorization": f"Bearer {groq_key}",
+            "Content-Type": f"multipart/form-data; boundary={boundary}",
+        },
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=20) as resp:
+        data = json.loads(resp.read().decode("utf-8"))
+        return (data.get("text") or "").strip()
 
 
 def improve_with_ai(text: str) -> str:
@@ -144,13 +203,6 @@ def transcribe_tamil_audio(
     if not audio_bytes:
         raise ValueError("ஒலிப்பதிவுத் தரவு காலியாக உள்ளது.")
 
-    try:
-        from google.genai import types
-    except ImportError as exc:
-        raise RuntimeError(
-            "google-genai தொகுப்பு நிறுவப்படவில்லை. pip install -U google-genai என இயக்கவும்."
-        ) from exc
-
     ext_mime_map = {
         ".webm": "audio/webm",
         ".wav": "audio/wav",
@@ -176,20 +228,35 @@ def transcribe_tamil_audio(
         else:
             clean_mime = "audio/wav"
 
-    prompt = (
-        "இந்த ஒலிப்பதிவில் பேசப்பட்டுள்ள தமிழ் உரையைத் துல்லியமாகத் தமிழ் ஒருங்குறி (Unicode) "
-        "எழுத்துகளில் மட்டும் எழுதித் தரவும். முன்னுரை அல்லது விளக்கம் வேண்டாம்."
-    )
+    gemini_err = None
+    if get_gemini_api_key():
+        try:
+            from google.genai import types
+            prompt = (
+                "இந்த ஒலிப்பதிவில் பேசப்பட்டுள்ள தமிழ் உரையைத் துல்லியமாகத் தமிழ் ஒருங்குறி (Unicode) "
+                "எழுத்துகளில் மட்டும் எழுதித் தரவும். முன்னுரை அல்லது விளக்கம் வேண்டாம்."
+            )
+            audio_part = types.Part.from_bytes(
+                data=audio_bytes,
+                mime_type=clean_mime,
+            )
+            return _call_gemini(
+                [prompt, audio_part],
+                fast_mode=True,
+                preferred_models=("gemini-3.8-flash-lite", "gemini-3.8-flash"),
+            )
+        except Exception as exc:
+            gemini_err = exc
 
-    audio_part = types.Part.from_bytes(
-        data=audio_bytes,
-        mime_type=clean_mime,
-    )
+    # Gemini 503 நெரிசலில் இருந்தால் Groq Whisper-க்கு தானாக மாறுதல்
+    if get_groq_api_key():
+        try:
+            return _transcribe_with_groq_fallback(audio_bytes, filename or "audio.webm")
+        except Exception as groq_exc:
+            raise RuntimeError(f"Gemini ({gemini_err}) & Groq ({groq_exc})")
 
-    return _call_gemini(
-        [prompt, audio_part],
-        fast_mode=True,
-        preferred_models=("gemini-3.8-flash-lite", "gemini-3.8-flash"),
+    raise RuntimeError(
+        "Google Gemini வழங்கி தற்போது அதிக நெரிசலில் (503) உள்ளது. சில வினாடிகள் கழித்து மீண்டும் முயற்சிக்கவும்."
     )
 
 
@@ -238,29 +305,4 @@ def generate_document_from_template(
             for table in doc.tables:
                 for row in table.rows:
                     chunks.append(" | ".join(cell.text for cell in row.cells))
-            sample_text = "\n".join(chunks)
-        except Exception as exc:
-            raise RuntimeError(f"DOCX கோப்பைப் படிக்க முடியவில்லை: {exc}") from exc
-        if not sample_text.strip():
-            raise ValueError("DOCX கோப்பில் வாசிக்கக்கூடிய உரை இல்லை.")
-        return _generate_from_text(sample_text, doc_type, details)
-
-    if name.endswith(".txt"):
-        sample_text = sample_bytes.decode("utf-8-sig", errors="replace")
-        if not sample_text.strip():
-            raise ValueError("TXT கோப்பில் உரை இல்லை.")
-        return _generate_from_text(sample_text, doc_type, details)
-
-    if name.endswith(".pdf"):
-        try:
-            from google.genai import types
-            pdf_part = types.Part.from_bytes(
-                data=sample_bytes,
-                mime_type="application/pdf",
-            )
-            prompt = _document_prompt(doc_type, details) + "\nஇந்த PDF-ஐப் படித்து புதிய ஆவணத்தை உருவாக்கவும்."
-            return _call_gemini([prompt, pdf_part], fast_mode=True)
-        except Exception as exc:
-            raise RuntimeError(f"Gemini PDF-ஐ வாசிக்க முடியவில்லை: {exc}") from exc
-
-    raise ValueError("DOCX, PDF அல்லது TXT கோப்பை மட்டும் பதிவேற்றவும்.")
+            sample_text = "\n".join
