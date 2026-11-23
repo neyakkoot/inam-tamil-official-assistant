@@ -1,5 +1,5 @@
 """
-Ultra-fast Gemini integration with Smart Offline Document Formatting Fallback.
+Ultra-fast Gemini integration with Template Structure Analysis & Offline Fallback.
 """
 import os
 import re
@@ -43,7 +43,7 @@ def _new_client():
     try:
         return genai.Client(
             api_key=key,
-            http_options=types.HttpOptions(timeout=20000),
+            http_options=types.HttpOptions(timeout=25000),
         )
     except Exception:
         return genai.Client(api_key=key)
@@ -321,22 +321,106 @@ def transcribe_tamil_audio(
 
 def _document_prompt(doc_type: str, details: dict) -> str:
     details_json = json.dumps(details, ensure_ascii=False, indent=2)
+    output_lang = details.get("வெளியீட்டு மொழி", "மாதிரி கோப்பின் மொழியிலேயே")
+
     return (
-        "நீங்கள் தமிழ்நாடு அரசு மற்றும் கல்வி நிறுவனங்களின் அலுவல் ஆவணங்களைப் பிழையின்றி உருவாக்கும் வல்லுநர்.\n\n"
-        f"தேர்ந்தெடுக்கப்பட்ட ஆவண வகை: **{doc_type}**\n"
-        f"பயனர் வழங்கிய விவரங்கள்:\n{details_json}\n\n"
-        "விதிகள்:\n"
-        f'1. மாதிரி கோப்பில் பல ஆவணங்கள் இருந்தால் **"{doc_type}"** வகைக்குப் பொருத்தமான வடிவமைப்பை மட்டுமே பின்பற்றவும்.\n'
-        f'2. இல்லையெனில் நிலையான தமிழ்நாடு அரசு / கல்வி நிறுவன **"{doc_type}"** வடிவமைப்பில் உருவாக்கவும்.\n'
-        "3. சந்திப் பிழை, எழுத்துப் பிழை இன்றித் தூய செந்தமிழில் எழுதவும்.\n"
-        "4. மாதிரியில் உள்ள பழைய பெயர், தேதி, எண்களை நகலெடுக்க வேண்டாம்; தரப்படாத விவரங்களுக்கு `[விவரம் நிரப்பப்பட வேண்டும்]` என இடவும்.\n"
-        "5. இறுதி ஆவண உரையை மட்டும் வழங்கவும்.\n"
+        "நீங்கள் தமிழ்நாடு அரசுத் துறைகள், இயக்குநரகங்கள் மற்றும் பல்கலைக்கழகங்களின் மூத்த அலுவல் ஆவண வடிவமைப்பாளர்.\n\n"
+        f"பயனர் கோரிய ஆவண வகை: **{doc_type}**\n"
+        f"வெளியீட்டு மொழி: **{output_lang}**\n"
+        f"புதிய ஆவணத்தில் இடம்பெற வேண்டிய விவரங்கள் & உள்ளே தரவேண்டிய குறிப்புகள்:\n{details_json}\n\n"
+        "மிக முக்கிய விதிகள்:\n"
+        "1. **மாதிரி கோப்பின் தன்மை & கட்டமைப்பைப் பின்பற்றுதல்:** பதிவேற்றப்பட்ட மாதிரி கோப்பு எத்தகைய அமைப்பைக் கொண்டுள்ளதோ "
+        "(உதாரணமாக: அரசுத் துறைத் தலைப்பு, ந.க.எண் / R.No., சுற்றறிக்கை எண் / Circular No., நாள் / Dated, "
+        "பொருள் / Sub, பார்வை / Ref, $===000===$ பிரிப்பான், எண்ணிட்ட விதிகள்/நிபந்தனைகள், அட்டவணைகள், "
+        "ஒப்பம் / Sd/-, பெறுநர் பட்டியல் / To, //ஆணைப்படி// அல்லது //By Order//) அச்சு அசலாக அதே அலுவல் கட்டமைப்பைப் பின்பற்றவும்.\n"
+        "2. **தானியங்கி வகை உணர்தல்:** ஆவண வகை 'தானியங்கி (பதிவேற்றிய கோப்பின் தன்மைக்கு ஏற்ப)' என இருந்தால், "
+        "மாதிரி கோப்பு சுற்றறிக்கையா, அரசாணையா, குறிப்பாணையா அல்லது அலுவல் கடிதமா என்பதைத் தானாகவே அடையாளம் கண்டு அதே வடிவத்தில் உருவாக்கவும்.\n"
+        "3. **மொழி விதி:** வெளியீட்டு மொழி 'தமிழ்' எனில், மாதிரி கோப்பு ஆங்கிலத்தில் இருந்தாலும் அதன் வடிவமைப்பை மட்டும் எடுத்துக்கொண்டு முழு ஆவணத்தையும் பிழையற்ற தூய செந்தமிழ் அலுவல் நடையில் எழுதவும். 'ஆங்கிலம்' எனில் ஆங்கிலத்திலும், 'மாதிரி கோப்பின் மொழியிலேயே' எனில் மாதிரி கோப்பின் மொழியிலும் எழுதவும்.\n"
+        "4. **உள்ளே தரவேண்டிய குறிப்புகள்:** பயனர் 'உள்ளே தரவேண்டிய குறிப்புகள் / விதிகள்' பகுதியில் தந்துள்ள அனைத்துத் தகவல்கள், எண்கள், விதிமுறைகள் மற்றும் அட்டவணை விவரங்களையும் தெளிவான பத்திகளாகவும் எண்ணிட்ட உட்பிரிவுகளாகவும் (1, 2, i, ii...) உள்ளடக்கவும்.\n"
+        "5. மாதிரி கோப்பில் உள்ள பழைய பெயர்கள், பழைய தேதிகள், பழைய நிறுவன முகவரிகளை நகலெடுக்க வேண்டாம்; தரப்படாத விவரங்களுக்கு மட்டும் `[விவரம் நிரப்பப்பட வேண்டும்]` என இடவும்.\n"
+        "6. முன்னுரையோ விளக்கமோ இன்றி, நேரடியாக Word ஆவணத்தில் அச்சிடத் தகுந்த முழுமையான இறுதி ஆவண உரையை மட்டும் வழங்கவும்.\n"
     )
 
 
+def _offline_template_fallback(sample_text: str, doc_type: str, details: dict) -> str:
+    """Gemini API வரம்பு (429) முடிந்திருந்தாலும், மாதிரி கோப்பின் கட்டமைப்பையும் பயனர் குறிப்புகளையும் இணைத்து ஆவணம் உருவாக்கும்."""
+    office = details.get("அலுவலகம் / துறை") or "[அலுவலகம் / துறையின் பெயர்]"
+    ref_no = details.get("ந.க.எண் / Circular No.") or "[ந.க.எண் / சுற்றறிக்கை எண்]"
+    date_str = details.get("நாள்") or datetime.now().strftime("%d.%m.%Y")
+    subject = details.get("பொருள் (Sub)") or "[பொருள் நிரப்பப்பட வேண்டும்]"
+    ref_docs = details.get("பார்வை (Ref)") or ""
+    inside_notes = details.get("உள்ளே தரவேண்டிய குறிப்புகள் / விதிகள்") or ""
+    table_notes = details.get("அட்டவணை / கூடுதல் விவரங்கள்") or ""
+    recipients = details.get("பெறுநர் பட்டியல் (To)") or "[பெறுநர் விவரம்]"
+    signatory = details.get("கையொப்பமிடுபவர் / பதவி") or "[அலுவலகத் தலைவர் / இணை ஆணையர்]"
+
+    # மாதிரி கோப்பில் //By Order// அல்லது ஆங்கில அரசு வடிவம் உள்ளதா எனச் சோதித்தல்
+    is_english_sample = bool(re.search(r"GOVERNMENT OF TAMIL NADU|CIRCULAR|Sub:|Ref:", sample_text, re.I))
+    out_lang = details.get("வெளியீட்டு மொழி", "")
+
+    if ("ஆங்கிலம்" in out_lang) or ("மாதிரி" in out_lang and is_english_sample):
+        lines = [
+            "GOVERNMENT OF TAMIL NADU",
+            office.upper(),
+            f"R.No. {ref_no}                                  Dated: {date_str}",
+            f"CIRCULAR / ORDER ({doc_type})",
+            "-" * 60,
+            f"Sub:  {subject}",
+        ]
+        if ref_docs.strip():
+            lines.append(f"Ref:  {ref_docs}")
+        lines.append("\n$===000===\n")
+        for idx, para in enumerate([p.strip() for p in inside_notes.splitlines() if p.strip()], 1):
+            lines.append(f"{idx}. {para}\n")
+        if table_notes.strip():
+            lines.append("Details / Schedule:\n" + table_notes.strip() + "\n")
+        lines.extend([
+            f"\n                                        Sd/- {signatory}",
+            "\nTo:",
+            recipients,
+            "\n                                        //By Order//",
+            "                                        Superintendent / Personal Assistant",
+        ])
+        return "\n".join(lines)
+
+    # தமிழ் அலுவல் வடிவம்
+    lines = [
+        "தமிழ்நாடு அரசு",
+        office,
+        f"ந.க.எண்: {ref_no}                                  நாள்: {date_str}",
+        f"{doc_type}",
+        "-" * 60,
+        f"பொருள்: {subject}",
+    ]
+    if ref_docs.strip():
+        lines.append(f"பார்வை: {ref_docs}")
+    lines.append("\n" + "=" * 25 + "\n")
+    for idx, para in enumerate([p.strip() for p in inside_notes.splitlines() if p.strip()], 1):
+        lines.append(f"{idx}. {para}\n")
+    if table_notes.strip():
+        lines.append("விவர அட்டவணை / இணைப்பு:\n" + table_notes.strip() + "\n")
+    lines.extend([
+        f"\n                                        ஒப்பம்/- {signatory}",
+        "\nபெறுநர்:",
+        recipients,
+        "\n                                        //ஆணைப்படி//",
+        "                                        கண்காணிப்பாளர் / நேர்முக உதவியாளர்",
+    ])
+    return "\n".join(lines)
+
+
 def _generate_from_text(sample_text: str, doc_type: str, details: dict) -> str:
-    prompt = _document_prompt(doc_type, details) + "\n\nமாதிரி ஆவணத்தின் உரை:\n" + sample_text[:25000]
-    return _call_gemini(prompt, fast_mode=True)
+    if get_gemini_api_key():
+        prompt = (
+            _document_prompt(doc_type, details)
+            + "\n\nபின்பற்ற வேண்டிய மாதிரி ஆவணத்தின் முழு உரை:\n"
+            + sample_text[:30000]
+        )
+        try:
+            return _call_gemini(prompt, fast_mode=True)
+        except Exception:
+            pass
+    return _offline_template_fallback(sample_text, doc_type, details)
 
 
 def generate_document_from_template(
@@ -369,9 +453,27 @@ def generate_document_from_template(
         return _generate_from_text(sample_text, doc_type, details)
 
     if name.endswith(".pdf"):
-        from google.genai import types
-        pdf_part = types.Part.from_bytes(data=sample_bytes, mime_type="application/pdf")
-        prompt = _document_prompt(doc_type, details) + "\nஇந்த PDF-ஐப் படித்து புதிய ஆவணத்தை உருவாக்கவும்."
-        return _call_gemini([prompt, pdf_part], fast_mode=True)
+        if get_gemini_api_key():
+            try:
+                from google.genai import types
+                pdf_part = types.Part.from_bytes(data=sample_bytes, mime_type="application/pdf")
+                prompt = (
+                    _document_prompt(doc_type, details)
+                    + "\nஇணைக்கப்பட்டுள்ள இந்த பல பக்க PDF ஆவணத்தின் வடிவமைப்பு, தலைப்புகள், எண்ணிட்ட விதிகள், "
+                    "அட்டவணை அமைப்பு மற்றும் கையொப்ப முறையினை முழுமையாகப் பகுப்பாய்ந்து புதிய ஆவணத்தை உருவாக்கவும்."
+                )
+                return _call_gemini([prompt, pdf_part], fast_mode=True)
+            except Exception:
+                pass
+
+        # PDF-க்கு Gemini வரம்பு முடிந்தால் pypdf / உரைப் பிரித்தெடுப்பு வழியாக fallback
+        extracted = ""
+        try:
+            from pypdf import PdfReader
+            reader = PdfReader(BytesIO(sample_bytes))
+            extracted = "\n".join(page.extract_text() or "" for page in reader.pages)
+        except Exception:
+            extracted = "GOVERNMENT OF TAMIL NADU CIRCULAR Sub: Ref: //By Order//"
+        return _offline_template_fallback(extracted, doc_type, details)
 
     raise ValueError("DOCX, PDF அல்லது TXT கோப்பை மட்டும் பதிவேற்றவும்.")
