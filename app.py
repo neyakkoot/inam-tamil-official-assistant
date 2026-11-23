@@ -179,7 +179,7 @@ def _render_live_voice_typing_board():
         }
         textarea {
             width: 100%;
-            min-height: 15px;
+            min-height: 145px;
             border: none;
             outline: none;
             resize: vertical;
@@ -194,7 +194,7 @@ def _render_live_voice_typing_board():
             align-items: center;
             flex-wrap: wrap;
             gap: 10px;
-            margin-top: 10px;
+            margin-top: 12px;
             font-size: 13px;
         }
         .counters {
@@ -210,7 +210,7 @@ def _render_live_voice_typing_board():
             border: 1px solid #cbd5e1;
             background: #f8fafc;
             color: #1e293b;
-            padding: 5px 12px;
+            padding: 6px 12px;
             border-radius: 8px;
             font-size: 13px;
             font-weight: 600;
@@ -406,11 +406,11 @@ def _render_live_voice_typing_board():
     </body>
     </html>
     """
-    components.html(html_code, height=)
+    components.html(html_code, height=430)
 
 
 st.title("📝 இனம் – தமிழ் அலுவல் உதவி")
-st.caption("Inam – Tamil Official Assistant & Language Workbench · Version 3.4.0")
+st.caption("Inam – Tamil Official Assistant & Language Workbench · Version 3.4.1")
 st.info(
     "பேசும்போதே உடனுக்குடன் தட்டச்சாகும் குரல் தட்டச்சுப் பலகை, குரல் செய்தியைச் சுற்றறிக்கை / பரப்புரை அறிக்கை / "
     "அரசு அறிக்கை வடிவங்களில் சொல்லாய்வி (Word .docx) ஆவணமாகப் பதிவிறக்கும் வசதி, குறியேற்ற மாற்றி, "
