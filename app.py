@@ -1,4 +1,5 @@
 import streamlit as st
+import streamlit.components.v1 as components
 from io import BytesIO
 
 from inam.corrector import correct_text, convert_to_official_style
@@ -7,6 +8,7 @@ from inam.ai_assistant import (
     ai_is_configured,
     get_ai_model,
     generate_document_from_template,
+    transcribe_tamil_audio,
 )
 from inam.documents import DOCUMENT_TYPES, build_document
 from inam.exporters import make_docx, make_txt, make_html
@@ -36,10 +38,6 @@ html, body, [class*="css"] {
     font-family: "Marutham", "Noto Sans Tamil", "Latha", sans-serif;
 }
 .block-container { max-width: 1200px; padding-top: 1.5rem; }
-.tamil-kbd-btn button {
-    font-size: 1.15rem !important;
-    padding: 0.35rem 0.5rem !important;
-}
 </style>
 """, unsafe_allow_html=True)
 
@@ -51,6 +49,8 @@ if "kbd_buffer" not in st.session_state:
     st.session_state["kbd_buffer"] = ""
 if "bib_list" not in st.session_state:
     st.session_state["bib_list"] = []
+if "stt_result" not in st.session_state:
+    st.session_state["stt_result"] = ""
 
 
 def _clear_text_results():
@@ -58,20 +58,119 @@ def _clear_text_results():
         st.session_state.pop(k, None)
 
 
+def _render_browser_tamil_stt():
+    """உலாவியின் Web Speech API வழியாக நேரடித் தமிழ் Speech-to-Text கருவி."""
+    html_code = """
+    <div style="font-family: 'Marutham', 'Noto Sans Tamil', sans-serif; padding: 14px; border: 1px solid #d0d7de; border-radius: 10px; background: #f8fafc;">
+        <div style="display: flex; gap: 10px; align-items: center; margin-bottom: 10px; flex-wrap: wrap;">
+            <button id="startBtn" onclick="startRecognition()" style="background:#0f766e; color:white; border:none; padding:8px 16px; border-radius:6px; cursor:pointer; font-size:15px;">
+                🎙️ பேசத் தொடங்கு (Start)
+            </button>
+            <button id="stopBtn" onclick="stopRecognition()" disabled style="background:#dc2626; color:white; border:none; padding:8px 16px; border-radius:6px; cursor:pointer; font-size:15px;">
+                ⏹️ நிறுத்து (Stop)
+            </button>
+            <button onclick="copyTranscript()" style="background:#2563eb; color:white; border:none; padding:8px 14px; border-radius:6px; cursor:pointer; font-size:14px;">
+                📋 உரையை நகலெடு
+            </button>
+            <button onclick="clearTranscript()" style="background:#64748b; color:white; border:none; padding:8px 14px; border-radius:6px; cursor:pointer; font-size:14px;">
+                🗑️ அழி
+            </button>
+            <span id="status" style="font-size:13px; color:#334155; font-weight:600;">தயார் நிலையில் உள்ளது (ta-IN)</span>
+        </div>
+        <textarea id="transcriptBox" rows="5" placeholder="ஒலிவாங்கியை அழுத்தித் தமிழில் பேசுங்கள்..." style="width:100%; padding:10px; font-size:16px; border-radius:8px; border:1px solid #cbd5e1; font-family: 'Marutham', 'Noto Sans Tamil', sans-serif;"></textarea>
+    </div>
+
+    <script>
+        let recognition = null;
+        let finalTranscript = "";
+        const statusEl = document.getElementById("status");
+        const boxEl = document.getElementById("transcriptBox");
+        const startBtn = document.getElementById("startBtn");
+        const stopBtn = document.getElementById("stopBtn");
+
+        if ("webkitSpeechRecognition" in window || "SpeechRecognition" in window) {
+            const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+            recognition = new SpeechRecognition();
+            recognition.lang = "ta-IN";
+            recognition.continuous = true;
+            recognition.interimResults = true;
+
+            recognition.onstart = () => {
+                statusEl.innerText = "🔴 கேட்கிறது... தமிழில் பேசுங்கள்";
+                startBtn.disabled = true;
+                stopBtn.disabled = false;
+            };
+
+            recognition.onresult = (event) => {
+                let interim = "";
+                for (let i = event.resultIndex; i < event.results.length; ++i) {
+                    if (event.results[i].isFinal) {
+                        finalTranscript += event.results[i][0].transcript + " ";
+                    } else {
+                        interim += event.results[i][0].transcript;
+                    }
+                }
+                boxEl.value = finalTranscript + interim;
+            };
+
+            recognition.onerror = (event) => {
+                statusEl.innerText = "⚠️ பிழை: " + event.error;
+                startBtn.disabled = false;
+                stopBtn.disabled = true;
+            };
+
+            recognition.onend = () => {
+                statusEl.innerText = "✅ ஒலிப்பதிவு நிறுத்தப்பட்டது";
+                startBtn.disabled = false;
+                stopBtn.disabled = true;
+            };
+        } else {
+            statusEl.innerText = "⚠️ உங்கள் உலாவி நேரடிக் குரல் தட்டச்சை ஆதரிக்கவில்லை (Chrome / Edge பயன்படுத்தவும்).";
+            startBtn.disabled = true;
+        }
+
+        function startRecognition() {
+            if (recognition) {
+                finalTranscript = boxEl.value ? boxEl.value + " " : "";
+                recognition.start();
+            }
+        }
+
+        function stopRecognition() {
+            if (recognition) recognition.stop();
+        }
+
+        function copyTranscript() {
+            boxEl.select();
+            document.execCommand("copy");
+            statusEl.innerText = "📋 உரை நகலெடுக்கப்பட்டது!";
+        }
+
+        function clearTranscript() {
+            finalTranscript = "";
+            boxEl.value = "";
+            statusEl.innerText = "அழிக்கப்பட்டது";
+        }
+    </script>
+    """
+    components.html(html_code, height=230)
+
+
 st.title("📝 இனம் – தமிழ் அலுவல் உதவி")
-st.caption("Inam – Tamil Official Assistant & Language Workbench · Version 3.0.0")
+st.caption("Inam – Tamil Official Assistant & Language Workbench · Version 3.1.0")
 st.info(
-    "தமிழ்த் தட்டச்சு, குறியேற்ற மாற்றி (Bamini/TSCII/TAB/TAM), சொற்பிழை/சந்தித் திருத்தி, அகராதி, "
-    "அகரவரிசைப்படுத்தல், சொல்லடைவு, துணைநூற்பட்டியல், எண்-எழுத்து மாற்றி ஆகியவை API இல்லாமல் நொடிப்பொழுதில் இயங்கும். "
-    "ஆழமான இலக்கண ஆய்வுக்கும் மாதிரி ஆவண உருவாக்கத்திற்கும் Gemini AI பயன்படுத்தப்படும்."
+    "குரல்வழித் தட்டச்சு (Speech-to-Text), தமிழ்த் தட்டச்சு, குறியேற்ற மாற்றி (Bamini/TSCII/TAB/TAM), "
+    "சொற்பிழை/சந்தித் திருத்தி, அகராதி, அகரவரிசைப்படுத்தல், சொல்லடைவு, துணைநூற்பட்டியல், "
+    "எண்-எழுத்து மாற்றி ஆகிய வசதிகள் ஒருங்கிணைக்கப்பட்டுள்ளன."
 )
 
 with st.sidebar:
     st.subheader("அடிப்படை வசதிகள் (Offline)")
-    st.success("12+ தமிழ் மொழிக் கருவிகள் – API தேவையில்லை")
+    st.success("13+ தமிழ் மொழிக் கருவிகள் – API தேவையில்லை")
     st.markdown("""
+- குரல்வழித் தட்டச்சு (Speech-to-Text)
 - தமிழ்த் தட்டச்சு விசைப்பலகை & ஒலிப்புத் தட்டச்சு
-- ஒருங்குறி எழுத்துரு & குறியேற்ற மாற்றி (Bamini, TSCII, TAB, TAM)
+- ஒருங்குறி எழுத்துரு & குறியேற்ற மாற்றி
 - சொற்பிழை & சந்திப்பிழை திருத்தி
 - தமிழ்ச்சொல் சுட்டி & தமிழ்-ஆங்கில அகராதி
 - அகரவரிசைப்படுத்தம் & சொல்லடைவு
@@ -88,7 +187,7 @@ with st.sidebar:
 
 tab_text, tab_typing, tab_lang_tools, tab_research, tab_docs, tab_guide = st.tabs([
     "மொழித்திருத்தம்",
-    "தட்டச்சு & எழுத்துரு",
+    "தட்டச்சு & குரல்",
     "சொல் & அகராதி",
     "ஆய்வு & எண் மாற்றி",
     "அலுவல் ஆவணம்",
@@ -103,7 +202,7 @@ with tab_text:
     source = st.text_area(
         "திருத்த வேண்டிய உரை",
         height=200,
-        placeholder="தமிழில் தட்டச்சு செய்யவும்...",
+        placeholder="தமிழில் தட்டச்சு செய்யவும் அல்லது குரல்வழித் தட்டச்சிலிருந்து நகலெடுத்து ஒட்டவும்...",
         key="source_input",
         on_change=_clear_text_results,
     )
@@ -262,14 +361,72 @@ with tab_text:
                 st.caption("• " + note)
 
 # =========================================================
-# தாவல் 2: தமிழ்த் தட்டச்சு, ஒலிப்புத் தட்டச்சு, எழுத்துரு, குறியேற்ற மாற்றி
+# தாவல் 2: குரல்வழித் தட்டச்சு, தமிழ்த் தட்டச்சு, எழுத்துரு, குறியேற்ற மாற்றி
 # =========================================================
 with tab_typing:
-    t_sub1, t_sub2, t_sub3 = st.tabs([
-        "ஒலிப்புத் தட்டச்சு & திரை விசைப்பலகை",
-        "குறியேற்ற மாற்றி (Encoding)",
-        "ஒருங்குறி எழுத்துருக்கள் (Unicode Fonts)",
+    t_sub_stt, t_sub1, t_sub2, t_sub3 = st.tabs([
+        "🎙️ குரல்வழித் தட்டச்சு (Speech-to-Text)",
+        "⌨️ ஒலிப்பு & திரை விசைப்பலகை",
+        "🔄 குறியேற்ற மாற்றி (Encoding)",
+        "🔤 ஒருங்குறி எழுத்துருக்கள்",
     ])
+
+    with t_sub_stt:
+        st.subheader("1. நேரடிக் குரல்வழித் தட்டச்சு (API Key தேவையில்லை)")
+        st.caption("Chrome அல்லது Edge உலாவியில் 'பேசத் தொடங்கு' பொத்தானை அழுத்தித் தமிழில் பேசினால் உடனடியாகத் தட்டச்சாகும்.")
+        _render_browser_tamil_stt()
+
+        st.divider()
+        st.subheader("2. ஒலிப்பதிவு / ஒலிக்கோப்பை உரையாக மாற்றுதல் (Gemini AI)")
+        st.caption("நேரடியாகக் குரலைப் பதிவு செய்தோ அல்லது MP3/WAV ஒலிக்கோப்பைப் பதிவேற்றியோ துல்லியமான தமிழ் உரையாக மாற்றலாம்.")
+
+        col_mic, col_up = st.columns(2)
+        with col_mic:
+            recorded_audio = st.audio_input("ஒலிவாங்கி வழி நேரடியாகப் பதிவு செய்க")
+        with col_up:
+            uploaded_audio = st.file_uploader(
+                "அல்லது ஒலிக்கோப்பைப் பதிவேற்றவும்",
+                type=["wav", "mp3", "m4a", "ogg"],
+                key="stt_file_upload",
+            )
+
+        active_audio = recorded_audio or uploaded_audio
+        if st.button(
+            "ஒலியைத் தமிழ் உரையாக மாற்று",
+            type="primary",
+            disabled=(not ai_is_configured() or active_audio is None),
+        ):
+            try:
+                with st.spinner("ஒலிப்பதிவை Gemini AI தமிழ் எழுத்துகளாக மாற்றுகிறது..."):
+                    mime = getattr(active_audio, "type", None) or "audio/wav"
+                    st.session_state["stt_result"] = transcribe_tamil_audio(
+                        active_audio.getvalue(), mime_type=mime
+                    )
+                st.success("ஒலிப்பதிவு வெற்றிகரமாக உரையாக மாற்றப்பட்டது.")
+            except Exception as exc:
+                st.error(f"ஒலியை மாற்ற முடியவில்லை: {exc}")
+
+        if not ai_is_configured():
+            st.info("ஒலிக்கோப்புகளை மாற்ற Gemini API Key தேவை; மேலே உள்ள உலாவி குரல் தட்டச்சு API இல்லாமலேயே இயங்கும்.")
+
+        if st.session_state["stt_result"]:
+            stt_edited = st.text_area(
+                "மாற்றப்பட்ட தமிழ் உரை",
+                value=st.session_state["stt_result"],
+                height=160,
+                key="stt_output_box",
+            )
+            b_send, b_dl = st.columns([1.2, 1])
+            if b_send.button("இந்த உரையை 'மொழித்திருத்தம்' தாவலுக்கு அனுப்பு", use_container_width=True):
+                st.session_state["source_input"] = stt_edited
+                st.success("உரை 'மொழித்திருத்தம்' தாவலில் நிரப்பப்பட்டுள்ளது!")
+            b_dl.download_button(
+                "உரையைப் பதிவிறக்கு (TXT)",
+                make_txt(stt_edited),
+                "inam-speech-to-text.txt",
+                "text/plain; charset=utf-8",
+                use_container_width=True,
+            )
 
     with t_sub1:
         st.subheader("ஒலிப்புத் தட்டச்சுக் கருவி (Phonetic Transliteration)")
@@ -282,7 +439,7 @@ with tab_typing:
             st.success(f"**தமிழ் வெளியீடு:** {converted_tamil}")
 
         st.divider()
-        st.subheader("தமிழ்த் தட்டச்சு விசைப்பலகை (On-Screen Tamil99 / Virtual Keyboard)")
+        st.subheader("தமிழ்த் தட்டச்சு விசைப்பலகை (On-Screen Virtual Keyboard)")
         vowels = ["அ", "ஆ", "இ", "ஈ", "உ", "ஊ", "எ", "ஏ", "ஐ", "ஒ", "ஓ", "ஔ", "ஃ"]
         consonants = ["க", "ங", "ச", "ஞ", "ட", "ண", "த", "ந", "ப", "ம", "ய", "ர", "ல", "வ", "ழ", "ள", "ற", "ன"]
         signs = ["ா", "ி", "ீ", "ு", "ூ", "ெ", "ே", "ை", "ொ", "ோ", "ௌ", "்"]
@@ -580,10 +737,10 @@ with tab_docs:
 # தாவல் 6: வழிகாட்டி
 # =========================================================
 with tab_guide:
-    st.subheader("பயன்பாட்டு வழிகாட்டி – இனம் 3.0")
+    st.subheader("பயன்பாட்டு வழிகாட்டி – இனம் 3.1")
     st.markdown("""
 - **மொழித்திருத்தம்:** சொற்பிழை, மயங்கொலிப் பிழை, வல்லினம் மிகும் சந்திப்பிழை ஆகியவற்றை API இல்லாமலேயே உடனடியாகத் திருத்தலாம்.
-- **தட்டச்சு & எழுத்துரு:** ஒலிப்புத் தட்டச்சு (Phonetic), திரைத் தமிழ் விசைப்பலகை, Bamini / TSCII / TAB / TAM ↔ Unicode குறியேற்ற மாற்றி மற்றும் ஒருங்குறி எழுத்துரு மாதிரிகளைப் பயன்படுத்தலாம்.
+- **தட்டச்சு & குரல்:** உலாவியின் நேரடிக் குரல்வழித் தட்டச்சு (Speech-to-Text), ஒலிப்பதிவு/ஒலிக்கோப்பு மாற்றம் (Gemini AI), ஒலிப்புத் தட்டச்சு, திரை விசைப்பலகை, Bamini / TSCII / TAB / TAM ↔ Unicode குறியேற்ற மாற்றி ஆகியவற்றைப் பயன்படுத்தலாம்.
 - **சொல் & அகராதி:** தமிழ்ச்சொல் சுட்டி, தமிழ்-ஆங்கில அலுவல் அகராதி, தமிழ் அகர வரிசைப்படுத்தம் ஆகியவை உள்ளடக்கப்பட்டுள்ளன.
 - **ஆய்வு & எண் மாற்றி:** ஆய்வுக் கட்டுரைகளுக்கான சொல்லடைவு (Indexing), துணைநூற்பட்டியல் (Bibliography), எண் ↔ தமிழ் எழுத்து மாற்றி ஆகியவை இடம்பெற்றுள்ளன.
 - **அலுவல் ஆவணம்:** மாதிரி DOCX/TXT/PDF கோப்புகளைப் பின்பற்றி Gemini AI மூலம் புதிய அலுவல் ஆவணங்களை உருவாக்கலாம்.
