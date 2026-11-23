@@ -3,7 +3,6 @@ Ultra-fast Gemini integration for Inam Tamil Official Assistant.
 """
 import os
 import re
-import time
 import json
 from io import BytesIO
 
@@ -24,7 +23,7 @@ def get_gemini_api_key() -> str:
 
 
 def get_ai_model() -> str:
-    return _secret("GEMINI_MODEL", "gemini-3.8-flash")
+    return _secret("GEMINI_MODEL", "gemini-3.8-flash-lite")
 
 
 def ai_is_configured() -> bool:
@@ -39,11 +38,19 @@ def _new_client():
         )
     try:
         from google import genai
+        from google.genai import types
     except ImportError as exc:
         raise RuntimeError(
             "google-genai தொகுப்பு நிறுவப்படவில்லை. pip install -U google-genai என இயக்கவும்."
         ) from exc
-    return genai.Client(api_key=key)
+
+    try:
+        return genai.Client(
+            api_key=key,
+            http_options=types.HttpOptions(timeout=25_000),
+        )
+    except Exception:
+        return genai.Client(api_key=key)
 
 
 def _fast_config():
@@ -58,12 +65,12 @@ def _fast_config():
 
 
 def _call_gemini(contents, fast_mode: bool = True, preferred_models: tuple = None):
-    """Instant execution with retry and fallback across active Gemini 3.8 models."""
+    """Zero-delay execution across fast Gemini 3.8 models."""
     primary_model = get_ai_model()
     default_chain = (
         primary_model,
-        "gemini-3.8-flash",
         "gemini-3.8-flash-lite",
+        "gemini-3.8-flash",
     )
     models_to_try = preferred_models if preferred_models else default_chain
 
@@ -74,37 +81,26 @@ def _call_gemini(contents, fast_mode: bool = True, preferred_models: tuple = Non
 
     config = _fast_config() if fast_mode else None
     last_error = None
+    client = _new_client()
 
-    # ஒவ்வொரு மாதிரியையும் 2 முறை (தற்காலிக நெரிசல் இருந்தால் சிறிய இடைவெளியுடன்) முயற்சித்தல்
-    attempts = []
-    for m in candidate_models:
-        attempts.append((m, 0.0))
-    attempts.append(("gemini-3.8-flash", 1.2))
-    attempts.append(("gemini-3.8-flash-lite", 1.5))
-
-    for model_name, wait_sec in attempts:
-        if wait_sec > 0:
-            time.sleep(wait_sec)
-        client = None
+    try:
+        for model_name in candidate_models:
+            try:
+                kwargs = {"model": model_name, "contents": contents}
+                if config is not None:
+                    kwargs["config"] = config
+                response = client.models.generate_content(**kwargs)
+                answer = (getattr(response, "text", None) or "").strip()
+                if answer:
+                    return answer
+            except Exception as exc:
+                last_error = exc
+                continue
+    finally:
         try:
-            client = _new_client()
-            kwargs = {"model": model_name, "contents": contents}
-            if config is not None:
-                kwargs["config"] = config
-            response = client.models.generate_content(**kwargs)
-            answer = (getattr(response, "text", None) or "").strip()
-            if not answer:
-                raise RuntimeError("Gemini பதில் காலியாக உள்ளது.")
-            return answer
-        except Exception as exc:
-            last_error = exc
-            continue
-        finally:
-            if client is not None:
-                try:
-                    client.close()
-                except Exception:
-                    pass
+            client.close()
+        except Exception:
+            pass
 
     raise RuntimeError(f"AI சேவை தற்காலிகமாகப் பரபரப்பாக உள்ளது: {last_error}")
 
@@ -144,7 +140,7 @@ def improve_with_ai_detailed(text: str, rule_findings: list) -> tuple[str, list]
 def transcribe_tamil_audio(
     audio_bytes: bytes, mime_type: str = "audio/wav", filename: str = ""
 ) -> str:
-    """தமிழ் ஒலிப்பதிவை (.webm, .wav, .mp3, .m4a, .ogg) Gemini 3.8 மூலம் தமிழ் ஒருங்குறி உரையாக மாற்றும்."""
+    """தமிழ் ஒலிப்பதிவை (.webm, .wav, .mp3, .m4a, .ogg) அதிவேகமாகத் தமிழ் ஒருங்குறி உரையாக மாற்றும்."""
     if not audio_bytes:
         raise ValueError("ஒலிப்பதிவுத் தரவு காலியாக உள்ளது.")
 
@@ -181,33 +177,20 @@ def transcribe_tamil_audio(
             clean_mime = "audio/wav"
 
     prompt = (
-        "இந்த ஒலிப்பதிவில் பேசப்பட்டுள்ள தமிழ் உரையைத் துல்லியமாகவும், "
-        "எழுத்துப் பிழை மற்றும் மயங்கொலிப் பிழையின்றியும் தமிழ் ஒருங்குறி (Unicode) எழுத்துகளில் மட்டும் எழுதித் தரவும். "
-        "கூடுதல் விளக்கங்களோ முன்னுரையோ வேண்டாம்; பேசப்பட்ட உரையை மட்டும் வழங்கவும்."
+        "இந்த ஒலிப்பதிவில் பேசப்பட்டுள்ள தமிழ் உரையைத் துல்லியமாகத் தமிழ் ஒருங்குறி (Unicode) "
+        "எழுத்துகளில் மட்டும் எழுதித் தரவும். முன்னுரை அல்லது விளக்கம் வேண்டாம்."
     )
 
-    # .webm கோப்புகளுக்கு audio/webm மற்றும் video/webm ஆகிய இரண்டையும் சோதித்தல்
-    mime_candidates = [clean_mime]
-    if fname_lower.endswith(".webm") and "video/webm" not in mime_candidates:
-        mime_candidates.append("video/webm")
+    audio_part = types.Part.from_bytes(
+        data=audio_bytes,
+        mime_type=clean_mime,
+    )
 
-    last_err = None
-    for candidate_mime in mime_candidates:
-        try:
-            audio_part = types.Part.from_bytes(
-                data=audio_bytes,
-                mime_type=candidate_mime,
-            )
-            return _call_gemini(
-                [prompt, audio_part],
-                fast_mode=False,
-                preferred_models=("gemini-3.8-flash", "gemini-3.8-flash-lite"),
-            )
-        except Exception as exc:
-            last_err = exc
-            continue
-
-    raise RuntimeError(f"{last_err}")
+    return _call_gemini(
+        [prompt, audio_part],
+        fast_mode=True,
+        preferred_models=("gemini-3.8-flash-lite", "gemini-3.8-flash"),
+    )
 
 
 def _document_prompt(doc_type: str, details: dict) -> str:
